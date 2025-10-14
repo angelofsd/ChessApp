@@ -380,13 +380,14 @@ export default function ChessApp() {
     if (moves.length === 0) return;
     setLoadingOpening(true);
     try {
+      // Lichess API expects play parameter with comma-separated moves
       const moveString = moves.join(',');
-      const response = await fetch(
-        `https://explorer.lichess.ovh/lichess?variant=standard&speeds=blitz,rapid,classical&ratings=2000,2200,2500&moves=${moveString}`,
-        { 
-          signal: AbortSignal.timeout(5000) // 5 second timeout
-        }
-      );
+      const url = `https://explorer.lichess.ovh/lichess?variant=standard&speeds=blitz,rapid,classical&ratings=2000,2200,2500&play=${encodeURIComponent(moveString)}`;
+      
+      const response = await fetch(url, { 
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
