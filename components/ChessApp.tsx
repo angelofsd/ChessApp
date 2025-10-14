@@ -81,6 +81,14 @@ export default function ChessApp() {
     const piece = board[rowIndex]?.[colIndex] || '';
     const isCapture = board[8 - parseInt(toRow)]?.[toCol.charCodeAt(0) - 'a'.charCodeAt(0)] !== '';
     
+    // Check for castling (king moves 2 squares)
+    if (piece.toUpperCase() === 'K') {
+      const colDiff = toCol.charCodeAt(0) - fromCol.charCodeAt(0);
+      if (Math.abs(colDiff) === 2) {
+        return colDiff > 0 ? 'O-O' : 'O-O-O';
+      }
+    }
+    
     // Pawns
     if (piece.toUpperCase() === 'P') {
       if (isCapture) {
@@ -350,6 +358,13 @@ export default function ChessApp() {
   const evaluateAllMoves = async () => {
     if (!stockfishRef.current) return;
     
+    // Send current position to Stockfish
+    const fen = boardToFEN();
+    if (!fen) {
+      console.warn('⚠️ Cannot analyze: invalid FEN (skipping)');
+      return;
+    }
+    
     // Stop any current analysis first
     try {
       stockfishRef.current.postMessage('stop');
@@ -365,13 +380,6 @@ export default function ChessApp() {
     
     // Set flag to use the general position parser
     analyzingSelectedPiece.current = false;
-    
-    // Send current position to Stockfish
-    const fen = boardToFEN();
-    if (!fen) {
-      console.error('❌ Cannot analyze: invalid FEN');
-      return;
-    }
     
     try {
       // Analyze top 20 moves for general position evaluation
@@ -408,13 +416,13 @@ export default function ChessApp() {
     // Add turn, castling, en passant, halfmove, and fullmove
     fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} KQkq - 0 1`;
     
-    // Validate FEN has both kings
+    // Validate FEN has both kings (warn but don't block)
     const whiteKingCount = (fen.match(/K/g) || []).length;
     const blackKingCount = (fen.match(/k/g) || []).length;
     
     if (whiteKingCount !== 1 || blackKingCount !== 1) {
-      console.error('❌ Invalid board: missing king(s)');
-      return null;
+      console.warn('⚠️ Board validation: Expected 1 of each king, found', { whiteKingCount, blackKingCount });
+      // Still return the FEN, just warn about it
     }
     
     return fen;
@@ -1117,7 +1125,7 @@ export default function ChessApp() {
                 {moveHistory.length === 0 ? (<p className="text-gray-400 text-sm">No moves yet</p>) : (
                   <div className="grid grid-cols-2 gap-2 text-white text-sm font-mono">
                     {moveHistory.map((move, i) => (
-                      <div key={i} className="flex gap-2">{i % 2 === 0 && <span className="text-gray-400">{Math.floor(i / 2) + 1}.</span>}<span>{move}</span></div>
+                      <div key={i} className="flex gap-2">{i % 2 === 0 && <span className="text-gray-400">{Math.floor(i / 2) + 1}.</span>}<span>{uciToAlgebraic(move)}</span></div>
                     ))}
                   </div>
                 )}
