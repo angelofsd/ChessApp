@@ -142,6 +142,10 @@ npm start
 
 See `AGENTS.md` for AI agent onboarding and development guidelines.
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for a detailed history of changes.
+
 ## License
 
 MIT
