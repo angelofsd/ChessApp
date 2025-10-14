@@ -224,6 +224,25 @@ export default function ChessApp() {
         
         worker.onerror = (error) => {
           console.error('Stockfish worker error:', error);
+          // Try to recover by reinitializing
+          setStockfishReady(false);
+          analyzingSelectedPiece.current = false;
+          analysisInProgress.current = false;
+          
+          // Recreate worker after a delay
+          setTimeout(() => {
+            console.log('🔄 Attempting to restart Stockfish...');
+            try {
+              const newWorker = new Worker('/stockfish.js');
+              stockfishRef.current = newWorker;
+              newWorker.postMessage('uci');
+              
+              newWorker.onmessage = worker.onmessage;
+              newWorker.onerror = worker.onerror;
+            } catch (err) {
+              console.error('Failed to restart Stockfish:', err);
+            }
+          }, 2000);
         };
         
         // Initialize engine
@@ -332,7 +351,12 @@ export default function ChessApp() {
     if (!stockfishRef.current) return;
     
     // Stop any current analysis first
-    stockfishRef.current.postMessage('stop');
+    try {
+      stockfishRef.current.postMessage('stop');
+    } catch (err) {
+      console.error('Error stopping analysis:', err);
+      return;
+    }
     
     // Clear previous evaluations
     setMoveEvaluations({});
@@ -342,15 +366,23 @@ export default function ChessApp() {
     // Set flag to use the general position parser
     analyzingSelectedPiece.current = false;
     
-    // Analyze top 20 moves for general position evaluation
-    stockfishRef.current.postMessage('setoption name MultiPV value 20');
-    
     // Send current position to Stockfish
     const fen = boardToFEN();
-    stockfishRef.current.postMessage(`position fen ${fen}`);
-    stockfishRef.current.postMessage('go depth 15');
+    if (!fen) {
+      console.error('❌ Cannot analyze: invalid FEN');
+      return;
+    }
     
-    console.log('🌍 Starting general position analysis (MultiPV=20, depth 15)');
+    try {
+      // Analyze top 20 moves for general position evaluation
+      stockfishRef.current.postMessage('setoption name MultiPV value 20');
+      stockfishRef.current.postMessage(`position fen ${fen}`);
+      stockfishRef.current.postMessage('go depth 15');
+      
+      console.log('🌍 Starting general position analysis (MultiPV=20, depth 15)');
+    } catch (err) {
+      console.error('Error starting analysis:', err);
+    }
   };
 
   const boardToFEN = () => {
@@ -372,7 +404,19 @@ export default function ChessApp() {
       fen += '/';
     }
     fen = fen.slice(0, -1);
+    
+    // Add turn, castling, en passant, halfmove, and fullmove
     fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} KQkq - 0 1`;
+    
+    // Validate FEN has both kings
+    const whiteKingCount = (fen.match(/K/g) || []).length;
+    const blackKingCount = (fen.match(/k/g) || []).length;
+    
+    if (whiteKingCount !== 1 || blackKingCount !== 1) {
+      console.error('❌ Invalid board: missing king(s)');
+      return null;
+    }
+    
     return fen;
   };
 
@@ -577,7 +621,170 @@ export default function ChessApp() {
     return moves;
   };
 
-  const getValidMoves = (row: number, col: number) => getValidMovesForBoard(board, row, col);
+  // Check if a square is under attack by a specific color
+  const isSquareUnderAttack = (boardState: Board, row: number, col: number, byColor: 'white' | 'black'): boolean => {
+    // Check all opponent pieces to see if any can attack this square
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = boardState[r][c];
+        if (!piece) continue;
+        
+        const pieceIsWhite = piece === piece.toUpperCase();
+        const pieceColor = pieceIsWhite ? 'white' : 'black';
+        
+        // Skip if piece is not the attacking color
+        if (pieceColor !== byColor) continue;
+        
+        const pieceType = piece.toLowerCase();
+        
+        // Check pawn attacks (pawns attack diagonally)
+        if (pieceType === 'p') {
+          const direction = pieceIsWhite ? -1 : 1;
+          if (r + direction === row && (c - 1 === col || c + 1 === col)) {
+            return true;
+          }
+          continue;
+        }
+        
+        // Check knight attacks
+        if (pieceType === 'n') {
+          const knightMoves = [
+            [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+            [1, -2], [1, 2], [2, -1], [2, 1]
+          ];
+          for (const [dr, dc] of knightMoves) {
+            if (r + dr === row && c + dc === col) {
+              return true;
+            }
+          }
+          continue;
+        }
+        
+        // Check king attacks (one square in any direction)
+        if (pieceType === 'k') {
+          const rowDiff = Math.abs(r - row);
+          const colDiff = Math.abs(c - col);
+          if (rowDiff <= 1 && colDiff <= 1 && (rowDiff + colDiff > 0)) {
+            return true;
+          }
+          continue;
+        }
+        
+        // Check sliding pieces (rook, bishop, queen)
+        const isRookOrQueen = pieceType === 'r' || pieceType === 'q';
+        const isBishopOrQueen = pieceType === 'b' || pieceType === 'q';
+        
+        // Rook/Queen horizontal and vertical attacks
+        if (isRookOrQueen) {
+          // Same row
+          if (r === row) {
+            const startCol = Math.min(c, col);
+            const endCol = Math.max(c, col);
+            let blocked = false;
+            for (let checkCol = startCol + 1; checkCol < endCol; checkCol++) {
+              if (boardState[r][checkCol]) {
+                blocked = true;
+                break;
+              }
+            }
+            if (!blocked) return true;
+          }
+          
+          // Same column
+          if (c === col) {
+            const startRow = Math.min(r, row);
+            const endRow = Math.max(r, row);
+            let blocked = false;
+            for (let checkRow = startRow + 1; checkRow < endRow; checkRow++) {
+              if (boardState[checkRow][c]) {
+                blocked = true;
+                break;
+              }
+            }
+            if (!blocked) return true;
+          }
+        }
+        
+        // Bishop/Queen diagonal attacks
+        if (isBishopOrQueen) {
+          const rowDiff = Math.abs(r - row);
+          const colDiff = Math.abs(c - col);
+          
+          if (rowDiff === colDiff && rowDiff > 0) {
+            const rowDir = row > r ? 1 : -1;
+            const colDir = col > c ? 1 : -1;
+            let blocked = false;
+            let checkRow = r + rowDir;
+            let checkCol = c + colDir;
+            
+            while (checkRow !== row && checkCol !== col) {
+              if (boardState[checkRow][checkCol]) {
+                blocked = true;
+                break;
+              }
+              checkRow += rowDir;
+              checkCol += colDir;
+            }
+            
+            if (!blocked) return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  };
+
+  // Check if the king of a specific color is in check
+  const isKingInCheck = (boardState: Board, color: 'white' | 'black'): boolean => {
+    // Find the king
+    const kingPiece = color === 'white' ? 'K' : 'k';
+    let kingRow = -1;
+    let kingCol = -1;
+    
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (boardState[r][c] === kingPiece) {
+          kingRow = r;
+          kingCol = c;
+          break;
+        }
+      }
+      if (kingRow !== -1) break;
+    }
+    
+    if (kingRow === -1) {
+      // King not found (shouldn't happen in valid game)
+      return false;
+    }
+    
+    // Check if king's square is under attack by opponent
+    const opponentColor = color === 'white' ? 'black' : 'white';
+    return isSquareUnderAttack(boardState, kingRow, kingCol, opponentColor);
+  };
+
+  const getValidMoves = (row: number, col: number) => {
+    const pseudoLegalMoves = getValidMovesForBoard(board, row, col);
+    const piece = board[row][col];
+    if (!piece) return [];
+    
+    const pieceColor = piece === piece.toUpperCase() ? 'white' : 'black';
+    
+    // Filter out moves that would leave the king in check
+    const legalMoves = pseudoLegalMoves.filter(move => {
+      // Simulate the move
+      const testBoard = board.map(r => [...r]);
+      const [toRow, toCol] = move as [number, number];
+      
+      testBoard[toRow][toCol] = testBoard[row][col];
+      testBoard[row][col] = '';
+      
+      // Check if this move would leave our king in check
+      return !isKingInCheck(testBoard, pieceColor);
+    });
+    
+    return legalMoves;
+  };
 
   // Get color intensity for move quality (trainer mode)
   const getMoveQualityColor = (fromRow: number, fromCol: number, toRow: number, toCol: number): string => {
@@ -810,6 +1017,11 @@ export default function ChessApp() {
                       const isValidMove = validMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
                       const moveQuality = selectedSquare ? getMoveQualityColor(selectedSquare[0], selectedSquare[1], rowIndex, colIndex) : '';
                       
+                      // Check if this square has a king in check
+                      const isKing = piece && piece.toLowerCase() === 'k';
+                      const kingColor = piece === 'K' ? 'white' : piece === 'k' ? 'black' : null;
+                      const kingInCheck = isKing && kingColor && isKingInCheck(board, kingColor);
+                      
                       // In trainer mode with hints: show quality colors or red for non-top-20
                       // In other modes: simple white rings
                       const validMoveRing = gameMode === 'trainer' && moveQuality === '' 
@@ -817,7 +1029,7 @@ export default function ChessApp() {
                         : 'ring-4 ring-inset ring-white';
 
                       return (
-                        <div key={`${rowIndex}-${colIndex}`} onClick={() => handleSquareClick(rowIndex, colIndex)} className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${isValidMove && !moveQuality ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} hover:brightness-110`}>
+                        <div key={`${rowIndex}-${colIndex}`} onClick={() => handleSquareClick(rowIndex, colIndex)} className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} hover:brightness-110`}>
                           {piece && (
                             <img 
                               src={PIECE_IMAGES[piece]} 
