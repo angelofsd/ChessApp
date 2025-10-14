@@ -13,18 +13,24 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - Compare moves to global best in position
   - Top 20 moves analyzed at depth 15
   - Moves outside top 20 marked as blunders
+  - **Evaluation bar showing position strength from White's perspective**
+- **Chess Rules Implemented**:
+  - All piece movements (pawns, knights, bishops, rooks, queens, kings)
+  - Castling (kingside and queenside)
+  - En passant capture
+  - Pawn promotion (to Queen)
+  - Check detection and visualization
+  - Checkmate and stalemate detection
 - **Beautiful SVG Pieces**: High-quality Wikipedia Commons chess pieces
-- **Move History**: Track all moves in algebraic notation
+- **Move History**: Track all moves in algebraic notation with chess piece symbols
 - **Opening Explorer**: Integration with Lichess API for opening statistics
 - **Game Persistence**: Save games to Supabase (optional)
 - **Responsive Design**: Beautiful gradient UI with Tailwind CSS
 
 ### Planned Features 🚧
-1. **Full Chess Rules** (High Priority)
-   - Check detection and enforcement
-   - Checkmate and stalemate detection
-   - En passant capture
-   - Pawn promotion
+1. **Enhanced AI** (Next Priority)
+   - Use Stockfish for actual AI moves (currently random)
+   - Adjustable difficulty levels
 
 2. **Opening Trainer Mode** (Planned)
    - Custom opening repertoire database
@@ -93,6 +99,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 - **Global comparison**: All moves compared to the absolute best move in the position
 - **Top 20 analysis**: MultiPV=20 at depth 15 for comprehensive evaluation
 - **Real-time hints**: Click any piece to see quality of all its moves
+- **Evaluation bar**: Shows position strength always from White's perspective
+  - White area (bottom) grows when White is better
+  - Black area (top) grows when Black is better
+  - Position evaluation stays consistent regardless of whose turn it is
 - Toggle hints on/off with the "Hints On" button
 
 ## Technology Stack
@@ -127,12 +137,9 @@ npm start
 
 ## Next Steps
 
-- [ ] Implement check detection and enforcement
-- [ ] Implement checkmate and stalemate detection  
-- [ ] Add en passant capture
-- [ ] Add pawn promotion UI
 - [ ] Improve AI with actual Stockfish moves (not random)
 - [ ] Add Opening Trainer mode with repertoire system
+- [ ] Add adjustable engine difficulty levels
 - [ ] User authentication and saved games per user
 - [ ] Move analysis and post-game review
 - [ ] Puzzle mode

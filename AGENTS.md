@@ -80,8 +80,12 @@ makeRandomMove(): void
 1. **Basic Chess Rules**
    - Piece movement (all types)
    - Castling (kingside and queenside)
+   - En passant capture
+   - Pawn promotion (to Queen)
+   - Check detection and visualization
+   - Checkmate and stalemate detection
    - Turn-based gameplay
-   - Move validation (pseudo-legal moves)
+   - Move validation (fully legal moves)
 
 2. **Game Modes**
    - vs Human: Local two-player
@@ -101,14 +105,19 @@ makeRandomMove(): void
    - **Global Comparison**: Each move compared to absolute best in position
    - **Smart Analysis**: Only analyzes moves from selected piece's square
    - **Toggle Hints**: On/off button to show/hide evaluations
+   - **Evaluation Bar**: Shows position strength always from White's perspective
+     - Positive values = White advantage (white area grows from bottom)
+     - Negative values = Black advantage (black area grows from top)
+     - Values stay consistent regardless of whose turn it is
 
 4. **UI Features**
    - Visual piece selection (blue ring)
    - Valid move indicators (white ring in human/AI modes)
-   - Move history display
+   - Move history display with chess piece symbols
    - Opening explorer panel
    - Reset and undo buttons
    - Top 3 moves display with evaluations
+   - King highlight when in check (red background)
 
 5. **API Integration**
    - Lichess Opening Explorer with error handling
@@ -116,31 +125,27 @@ makeRandomMove(): void
    - Non-blocking fetch (game continues on failure)
 
 ### ❌ Not Implemented Yet
-- **Check detection and enforcement** (High Priority)
-- **Checkmate detection** (High Priority)
-- **Stalemate detection**
-- En passant capture
-- Pawn promotion
+- **Real Stockfish AI moves** (currently uses random moves in AI mode)
+- **Adjustable difficulty levels**
 - Draw by repetition/50-move rule
-- Real Stockfish engine for AI moves (currently random)
-- Move evaluation/scoring display during game
+- Opening trainer mode with repertoire system
 
 ## Planned Features
 
-### 1. Check Detection & Enforcement (Next Priority)
+### 1. Stockfish AI Moves (Next Priority)
 
 **Requirements:**
-- Detect when king is in check
-- Filter pseudo-legal moves to only truly legal moves (don't allow moves that leave king in check)
-- Highlight king when in check
-- Enforce that player must get out of check
+- Use Stockfish for actual AI moves instead of random
+- Adjustable difficulty levels (different depths)
+- Time management for moves
+- Display AI's thinking (principal variation)
 
 **Implementation Plan:**
-1. Add `isSquareUnderAttack(board, row, col, byColor)` function
-2. Add `isKingInCheck(board, color)` function
-3. Modify `getValidMovesForBoard` to filter out moves that leave king in check
-4. Add visual indicator for check
-5. Add `isCheckmate()` and `isStalemate()` detection
+1. Modify `getStockfishMove` to request best move from engine
+2. Add difficulty settings (depth 1-20)
+3. Extract and execute the best move
+4. Add "AI is thinking" indicator
+5. Store and display AI's evaluation reasoning
 
 ### 2. Opening Trainer Mode (Future)
 
@@ -219,8 +224,13 @@ worker.onmessage = (e) => {
   const score = message.match(/score cp (-?\d+)/)?.[1];
   const move = message.match(/pv ([a-h][1-8][a-h][1-8])/)?.[1];
   
-  // Store move evaluations
-  // Calculate centipawn loss vs best move
+  // CRITICAL: Stockfish reports from SIDE-TO-MOVE perspective!
+  // Convert to White's perspective for consistency
+  const fenParts = currentAnalysisFEN.current.split(' ');
+  const sideToMove = fenParts[1] === 'w' ? 'white' : 'black';
+  const whitePersp = sideToMove === 'white' ? centipawns : -centipawns;
+  
+  // Store move evaluations and update evaluation bar
 };
 ```
 
@@ -229,6 +239,10 @@ worker.onmessage = (e) => {
 - Piece selection: Filters topMoves to only moves from selected square
 - Color coding: Based on centipawn loss from best move
 - No separate piece-specific analysis (uses general analysis results)
+- **Evaluation Bar**: Always shows position from White's perspective
+  - Uses FEN string to determine side-to-move (not React state)
+  - Prevents race conditions during state updates
+  - Positive = White better, Negative = Black better (consistent)
 
 ### Adding New Piece Movement
 
