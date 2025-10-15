@@ -21,7 +21,7 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - Pawn promotion (to Queen)
   - Check detection and visualization
   - Checkmate and stalemate detection
-- **Beautiful SVG Pieces**: High-quality Wikipedia Commons chess pieces
+- **SVG Pieces**: High-quality Wikipedia Commons chess pieces
 - **Move History**: Track all moves in algebraic notation with chess piece symbols
 - **Opening Explorer**: Integration with Lichess API for opening statistics
 - **Game Persistence**: Save games to Supabase (optional)
