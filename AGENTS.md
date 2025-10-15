@@ -15,6 +15,115 @@ This document helps AI coding agents quickly understand the codebase and contrib
 - **State Management**: React hooks (useState, useEffect, useRef)
 - **Backend**: Supabase (optional, for game storage)
 - **APIs**: Lichess Opening Explorer
+- **Chess Engine**: Stockfish 17.1 (WASM binary running in Web Worker)
+
+### WebAssembly (WASM) & Web Workers
+
+This app uses advanced browser technologies to run a full chess engine directly in the browser:
+
+#### What is WebAssembly (WASM)?
+
+**WebAssembly** is a low-level binary instruction format that runs in modern browsers at near-native speed. It allows code written in languages like C++ (like Stockfish) to be compiled to a format that browsers can execute efficiently.
+
+**Why we use it:**
+- Stockfish is written in C++ and compiled to WASM
+- Runs 10-20x faster than pure JavaScript
+- Enables complex chess analysis (depth 15+) directly in the browser
+- No server required - completely client-side
+
+**Our WASM files:**
+- `public/stockfish.js` - JavaScript loader/wrapper for the WASM binary
+- `public/stockfish.wasm` - The actual compiled Stockfish engine (~800KB)
+- `public/stockfish-17.1-lite-single-03e3232.wasm` - Specific version binary
+
+#### What is a Web Worker?
+
+**Web Workers** run JavaScript in a background thread, separate from the main UI thread. This prevents the heavy computation from freezing the user interface.
+
+**Why we use it:**
+- Chess engine analysis is CPU-intensive (can take 1-5 seconds)
+- Without Web Worker: UI would freeze during analysis
+- With Web Worker: Game remains responsive while engine thinks
+
+**How it works in our app:**
+```typescript
+// Create worker in a background thread
+const worker = new Worker('/stockfish.js');
+stockfishRef.current = worker;
+
+// Send commands to the worker (non-blocking)
+worker.postMessage('uci');                    // Initialize engine
+worker.postMessage('position fen <fen>');     // Set position
+worker.postMessage('go depth 15');            // Start analysis
+
+// Receive results asynchronously
+worker.onmessage = (e) => {
+  const message = e.data;
+  // Parse engine output: "info depth 15 score cp 38 pv e2e4"
+  parseStockfishEval(message);
+};
+```
+
+**Architecture:**
+```
+Main Thread (UI)              Web Worker Thread
+┌─────────────────┐          ┌──────────────────┐
+│  React App      │          │  Stockfish.js    │
+│  ChessApp.tsx   │◄────────►│  (WASM loader)   │
+│                 │  Events  │                  │
+│  - User clicks  │          │  ┌────────────┐  │
+│  - Board updates│          │  │ stockfish  │  │
+│  - Render UI    │          │  │   .wasm    │  │
+│                 │          │  │ (C++ binary)│  │
+└─────────────────┘          │  └────────────┘  │
+                             └──────────────────┘
+     No blocking!              Heavy computation
+     UI responsive              runs here
+```
+
+#### UCI Protocol
+
+Stockfish communicates using the **Universal Chess Interface (UCI)** protocol:
+
+**Commands we send:**
+- `uci` - Initialize engine
+- `ucinewgame` - Start new game
+- `position fen <fen>` - Set board position
+- `setoption name MultiPV value 20` - Analyze top 20 moves
+- `go depth 15` - Search to depth 15
+- `stop` - Stop analysis
+
+**Responses we parse:**
+```
+info depth 15 multipv 1 score cp 38 pv e2e4 e7e5
+│    │        │         │         │  │
+│    │        │         │         │  └─ Principal variation (best line)
+│    │        │         │         └─ Centipawns (38 = +0.38 pawns)
+│    │        │         └─ MultiPV number (1 = best move)
+│    │        └─ Search depth reached
+│    └─ Info about analysis
+└─ Message type
+```
+
+#### Error Handling
+
+**WASM "unreachable" errors** can occur during hot module reloading in development:
+- These are usually harmless
+- The app auto-recovers by restarting the worker after 2 seconds
+- In development mode, logged as warnings instead of errors
+
+**Worker lifecycle:**
+1. Initialize on component mount
+2. Listen for messages and errors
+3. Auto-restart on crashes
+4. Clean up on component unmount
+
+#### Performance Considerations
+
+- **MultiPV=20**: Analyzing 20 moves takes more time but provides better move hints
+- **Depth 15**: Good balance between speed (~2-3 seconds) and accuracy
+- **Async analysis**: Never blocks the UI - game remains playable during analysis
+- **Debouncing**: Analysis only triggers when no piece is selected and position changes
 
 ### Key Files
 
