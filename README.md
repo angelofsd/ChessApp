@@ -5,8 +5,13 @@ A modern chess application with multiple training modes, AI opponent, and openin
 ## Features
 
 ### Current Features ✅
-- **Play vs Human**: Two-player local chess game
-- **Play vs AI**: Play against a simulated AI opponent (random moves currently)
+- **Play vs Human**: Two-player local chess game with full chess rules
+- **Play vs AI**: 
+  - Four difficulty levels: **Easy**, **Medium**, **Hard**, **Expert**
+  - Easy: Random moves (great for beginners)
+  - Medium: Stockfish depth 10, weighted selection (60%/25%/15%)
+  - Hard: Stockfish depth 15, weighted selection (80%/15%/5%)
+  - Expert: Stockfish depth 20, always best move
 - **Move Trainer Mode**: 
   - Real-time Stockfish 17.1 engine analysis
   - Color-coded move hints (green = best, red = blunder)
@@ -16,11 +21,12 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - **Evaluation bar showing position strength from White's perspective**
 - **Chess Rules Implemented**:
   - All piece movements (pawns, knights, bishops, rooks, queens, kings)
-  - Castling (kingside and queenside)
+  - Castling (kingside and queenside) with full legality checking
   - En passant capture
   - Pawn promotion (to Queen)
   - Check detection and visualization
   - Checkmate and stalemate detection
+  - **Legal move enforcement**: King cannot move into check, pieces cannot move if it leaves king in check
 - **SVG Pieces**: High-quality Wikipedia Commons chess pieces
 - **Move History**: Track all moves in algebraic notation with chess piece symbols
 - **Opening Explorer**: Integration with Lichess API for opening statistics
@@ -28,15 +34,17 @@ A modern chess application with multiple training modes, AI opponent, and openin
 - **Responsive Design**: Beautiful gradient UI with Tailwind CSS
 
 ### Planned Features 🚧
-1. **Enhanced AI** (Next Priority)
-   - Use Stockfish for actual AI moves (currently random)
-   - Adjustable difficulty levels
-
-2. **Opening Trainer Mode** (Planned)
+1. **Opening Trainer Mode** (Next Priority)
    - Custom opening repertoire database
    - Practice specific opening lines
    - Retry mechanism for incorrect moves
    - Progress tracking
+
+2. **Game Improvements**
+   - Pawn promotion choice (currently auto-promotes to Queen)
+   - Draw by repetition and 50-move rule
+   - Clock and time controls
+   - Undo/redo moves with board replay
 
 ## Quick Start
 
@@ -84,9 +92,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 - Alternates between white and black
 
 ### vs AI
+- **Choose your difficulty**: Easy, Medium, Hard, or Expert
 - Play as white against the computer (black)
 - AI makes moves automatically after your turn
-- Currently uses random legal moves (Stockfish integration coming)
+- **Easy**: Perfect for beginners - completely random legal moves
+- **Medium**: Challenging - thinks 10 moves ahead, varies its play
+- **Hard**: Strong - thinks 15 moves ahead, plays near-optimal
+- **Expert**: Maximum strength - thinks 20 moves ahead, always best move
 
 ### Move Trainer ✨
 - **Color-coded move quality**: Each move is evaluated by Stockfish 17.1
@@ -148,9 +160,11 @@ npm start
 
 ## Next Steps
 
-- [ ] Improve AI with actual Stockfish moves (not random)
+- [x] Improve AI with actual Stockfish moves ✅
+- [x] Add adjustable engine difficulty levels ✅
+- [x] Legal move enforcement (king safety) ✅
 - [ ] Add Opening Trainer mode with repertoire system
-- [ ] Add adjustable engine difficulty levels
+- [ ] Pawn promotion choice UI (Q/R/B/N)
 - [ ] User authentication and saved games per user
 - [ ] Move analysis and post-game review
 - [ ] Puzzle mode

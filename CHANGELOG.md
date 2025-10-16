@@ -8,12 +8,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Improve AI with Stockfish engine (replace random moves with actual engine analysis)
-- Adjustable difficulty levels
 - Opening Trainer mode with custom repertoires
 - Clock and time controls
 - Time-loss detection
 - Draw by repetition and 50-move rule
+- Pawn promotion choice UI (currently auto-promotes to Queen)
+
+## [0.4.0] - 2025-10-15
+
+### Added
+- **AI Opponent with Stockfish** 🤖
+  - Four difficulty levels: Easy, Medium, Hard, Expert
+  - **Easy**: 100% random legal moves (no engine analysis)
+  - **Medium**: Depth 10, weighted selection (60% best, 25% 2nd, 15% 3rd)
+  - **Hard**: Depth 15, weighted selection (80% best, 15% 2nd, 5% 3rd)
+  - **Expert**: Depth 20, always plays best move
+  - AI thinking indicator with loading spinner
+  - Difficulty selector dropdown in AI mode
+- **Legal Move Enforcement** ⚖️
+  - Complete legal move validation for both players
+  - King cannot move into check
+  - King cannot castle through check or while in check
+  - Pieces cannot move if it would leave king in check
+  - Special moves (castling, en passant) properly simulated for validation
+- **Improved Board State Management**
+  - Dynamic FEN castling rights based on actual piece movement tracking
+  - Proper king and rook movement state tracking
+  - En passant target square tracking
+
+### Fixed
+- **Critical: Illegal Move Prevention** 🛡️
+  - Fixed king able to move into check (now properly validates destination square)
+  - Fixed pieces able to move when king is in check (now filters all moves)
+  - Fixed castling allowed when king in check (now properly blocked)
+  - Fixed castling through check (simulates rook movement in validation)
+  - Fixed AI making illegal moves in Easy mode (now validates all random moves)
+- **Castling Execution Bug** 🏰
+  - Root cause: Castling moves were added as `[row, col]` without special markers
+  - Impact: `getValidMoves()` only moved king, not rook, when simulating castling
+  - Solution: Added 'castle-kingside' and 'castle-queenside' markers to moves
+  - Now properly simulates both king and rook movement for check detection
+- **Move Validation Simulation** 🎭
+  - `getValidMoves()` now properly simulates castling (moves both pieces)
+  - `getValidMoves()` now properly simulates en passant (removes captured pawn)
+  - `makeRandomMove()` now filters out illegal moves using full simulation
+  - All special moves properly handled in legal move checking
+- **Type Safety Improvements** 
+  - Changed `getValidMovesForBoard()` return type from `number[][]` to `Array<Array<number | string>>`
+  - Allows special move markers (strings) alongside coordinates (numbers)
+  - Fixed TypeScript errors in `makeRandomMove()` with proper type casting
+- **React State Management** 
+  - Fixed closure bugs with refs for `gameMode`, `currentPlayer`, and `board`
+  - Prevents stale state in async callbacks and timeouts
+  - AI move execution validates current state using refs, not closures
+
+### Technical
+- **AI Move Generation Flow**:
+  1. Request analysis from Stockfish with MultiPV based on difficulty
+  2. Collect move candidates with evaluations from Black's perspective
+  3. Apply difficulty-based weighted selection
+  4. Execute move with full validation
+- **Legal Move Validation Algorithm**:
+  1. Generate pseudo-legal moves (piece movement rules only)
+  2. For each move, simulate on test board
+  3. Handle special moves (castling moves both pieces, en passant removes pawn)
+  4. Check if king would be in check after move
+  5. Filter out moves that leave king in check
+- **Castling Move Format**: `[toRow, toCol, 'castle-kingside' | 'castle-queenside']`
+- **En Passant Move Format**: `[toRow, toCol, 1]` (1 marks en passant)
+- **Normal Move Format**: `[toRow, toCol]`
+
+### Lessons Learned
+- **React Closure Pitfall**: State in `setTimeout` callbacks can become stale
+  - Solution: Use refs (`useRef`) for values needed in async code
+  - Keep refs in sync with state via `useEffect`
+- **Chess Move Simulation**: Must handle ALL special moves when validating
+  - Castling: Move both king and rook
+  - En passant: Remove pawn from different square than capture square
+  - Promotion: Replace pawn with new piece
+- **Type Systems Save Time**: TypeScript caught the move array type mismatch
+  - Adding special markers required updating return types
+  - Caught potential runtime errors at compile time
 
 ## [0.3.0] - 2025-10-14
 

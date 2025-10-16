@@ -194,14 +194,27 @@ makeRandomMove(): void
    - Check detection and visualization
    - Checkmate and stalemate detection
    - Turn-based gameplay
-   - Move validation (fully legal moves)
+   - **Move validation (fully legal moves)** ✅
+   - **King safety enforcement** ✅
+   - **Castling legality checks** ✅
 
 2. **Game Modes**
    - vs Human: Local two-player
-   - vs AI: Play against random move generator
-   - **Move Trainer: Stockfish-powered move evaluation** ✨
+   - **vs AI: Play against Stockfish with 4 difficulty levels** ✅
+   - **Move Trainer: Stockfish-powered move evaluation** ✅
 
-3. **Move Trainer Features** ✨
+3. **AI Opponent Features** ✅
+   - **Stockfish 17.1 Integration**: Full chess engine with MultiPV analysis
+   - **Four Difficulty Levels**:
+     - Easy: 100% random legal moves (no engine)
+     - Medium: Depth 10, weighted selection (60%/25%/15%)
+     - Hard: Depth 15, weighted selection (80%/15%/5%)
+     - Expert: Depth 20, always best move
+   - **AI Thinking Indicator**: Shows when AI is calculating
+   - **Move Validation**: AI only makes legal moves
+   - **Difficulty Selector**: Dropdown in AI mode
+
+4. **Move Trainer Features** ✨
    - **Stockfish 17.1 Integration**: WebWorker-based engine running at depth 15
    - **MultiPV Analysis**: Analyzes top 20 moves in each position
    - **Color-coded Move Quality**:
@@ -219,7 +232,7 @@ makeRandomMove(): void
      - Negative values = Black advantage (black area grows from top)
      - Values stay consistent regardless of whose turn it is
 
-4. **UI Features**
+5. **UI Features**
    - Visual piece selection (blue ring)
    - Valid move indicators (white ring in human/AI modes)
    - Move history display with chess piece symbols
@@ -227,36 +240,167 @@ makeRandomMove(): void
    - Reset and undo buttons
    - Top 3 moves display with evaluations
    - King highlight when in check (red background)
+   - AI thinking indicator with spinner
 
-5. **API Integration**
+6. **API Integration**
    - Lichess Opening Explorer with error handling
    - 5-second timeout on API calls
    - Non-blocking fetch (game continues on failure)
 
 ### ❌ Not Implemented Yet
-- **Real Stockfish AI moves** (currently uses random moves in AI mode)
-- **Adjustable difficulty levels**
+- **Pawn promotion choice UI** (currently auto-promotes to Queen)
 - Draw by repetition/50-move rule
 - Opening trainer mode with repertoire system
+- Undo/redo with full board replay
 
 ## Planned Features
 
-### 1. Stockfish AI Moves (Next Priority)
+### 1. Opening Trainer Mode (Next Priority)
 
 **Requirements:**
-- Use Stockfish for actual AI moves instead of random
-- Adjustable difficulty levels (different depths)
-- Time management for moves
-- Display AI's thinking (principal variation)
+- Database of opening lines (PGN format)
+- User selects opening repertoire to practice
+- Show expected moves
+- Alert on incorrect moves with retry option
+- Track user progress/accuracy
 
 **Implementation Plan:**
-1. Modify `getStockfishMove` to request best move from engine
-2. Add difficulty settings (depth 1-20)
-3. Extract and execute the best move
-4. Add "AI is thinking" indicator
-5. Store and display AI's evaluation reasoning
+1. Design opening database schema
+2. Import common openings (Sicilian, French, etc.)
+3. Create opening selection UI
+4. Implement move validation against repertoire
+5. Add feedback system
+6. Store practice statistics
 
-### 2. Opening Trainer Mode (Future)
+## Major Bug Fixes & Lessons Learned
+
+### 1. Illegal Move Prevention (October 2025)
+
+**Bug**: Players could move pieces when their king was in check, king could move into check, and AI could make illegal moves.
+
+**Root Cause**: 
+- `getValidMovesForBoard()` generates pseudo-legal moves (follows piece rules but ignores check)
+- Castling moves lacked special markers, so validation only moved king, not rook
+- `makeRandomMove()` didn't filter out moves that leave king in check
+
+**Solution**:
+```typescript
+// Added special markers to castling moves
+moves.push([7, 6, 'castle-kingside']);  // Not just [7, 6]
+
+// getValidMoves() now simulates ALL special moves
+if (special === 'castle-kingside') {
+  testBoard[toRow][toCol] = movingPiece;
+  testBoard[row][col] = '';
+  testBoard[toRow][5] = testBoard[toRow][7]; // Move rook too!
+  testBoard[toRow][7] = '';
+}
+
+// makeRandomMove() now filters illegal moves
+if (!isKingInCheck(testBoard, 'black')) {
+  allMoves.push({ from: [row, col], to: move });
+}
+```
+
+**Key Lesson**: When validating chess moves, you must simulate the COMPLETE move (including special moves) on a test board, not just the primary piece movement.
+
+### 2. React Closure Bug in AI Move Execution (October 2025)
+
+**Bug**: AI would sometimes make duplicate moves or fail to move when switching between game modes quickly.
+
+**Root Cause**: `setTimeout` callbacks captured stale state values in their closures.
+
+```typescript
+// ❌ BAD: Uses stale state from closure
+setTimeout(() => {
+  if (gameMode === 'ai') {  // This gameMode is stale!
+    executeAIMove(move);
+  }
+}, 300);
+```
+
+**Solution**: Use `useRef` to store values that need to be checked in async callbacks:
+
+```typescript
+// ✅ GOOD: Use refs for async/callback access
+const gameModeRef = useRef<'human' | 'ai' | 'trainer'>(gameMode);
+const currentPlayerRef = useRef<'white' | 'black'>(currentPlayer);
+const boardRef = useRef<Board>(board);
+
+// Keep refs in sync via useEffect
+useEffect(() => {
+  gameModeRef.current = gameMode;
+  currentPlayerRef.current = currentPlayer;
+  boardRef.current = board;
+}, [gameMode, currentPlayer, board]);
+
+// In async callbacks, check the ref
+setTimeout(() => {
+  if (gameModeRef.current === 'ai') {  // Always current!
+    executeAIMove(move);
+  }
+}, 300);
+```
+
+**Key Lesson**: React state in `setTimeout`, `setInterval`, or any async callback can become stale. Always use refs for values that need to be checked after a delay.
+
+### 3. FEN Castling Rights Bug (October 2025)
+
+**Bug**: Stockfish would crash with "memory access out of bounds" when generating castling FEN notation.
+
+**Root Cause**: Hardcoded castling rights as "KQkq" even when pieces had moved.
+
+**Solution**: Generate castling rights dynamically based on actual piece movement:
+
+```typescript
+let castling = '';
+if (!kingMoved.white) {
+  if (!rookMoved.whiteKingSide) castling += 'K';
+  if (!rookMoved.whiteQueenSide) castling += 'Q';
+}
+if (!kingMoved.black) {
+  if (!rookMoved.blackKingSide) castling += 'k';
+  if (!rookMoved.blackQueenSide) castling += 'q';
+}
+if (castling === '') castling = '-';
+```
+
+**Key Lesson**: FEN notation must accurately reflect the current board state. Never hardcode positional flags.
+
+### 4. Evaluation Bar Flipping Bug (October 2025)
+
+**Bug**: Evaluation bar would flip between positive and negative on each move.
+
+**Root Cause**: Stockfish reports evaluations from the **side-to-move** perspective, not White's perspective.
+- When White to move: +50 cp means White is better
+- When Black to move: +50 cp means Black is better
+
+**Solution**: Parse the FEN to determine whose turn it is, then convert to White's perspective:
+
+```typescript
+// Store FEN being analyzed
+currentAnalysisFEN.current = fen;
+
+// In parser, extract side-to-move
+const fenParts = currentAnalysisFEN.current.split(' ');
+const sideToMove = fenParts[1] === 'w' ? 'white' : 'black';
+
+// Convert to White's perspective
+const whitePersp = sideToMove === 'white' ? centipawns : -centipawns;
+setCurrentEvaluation(whitePersp);
+```
+
+**Key Lesson**: UCI engines report from the perspective of the player to move. You must convert these values based on whose turn it is if you want a consistent reference frame.
+
+### 5. TypeScript Type Safety Saves Time (October 2025)
+
+**Issue**: After adding castling markers to move arrays, got compilation errors everywhere moves were used.
+
+**What Happened**: Changing return type from `number[][]` to `Array<Array<number | string>>` exposed all the places where we assumed moves only contained numbers.
+
+**Key Lesson**: TypeScript's strict typing caught potential runtime errors at compile time. The extra effort to fix type errors prevented hard-to-debug runtime bugs.
+
+## Planned Features (Continued)
 
 **Requirements:**
 - Database of opening lines (PGN format)

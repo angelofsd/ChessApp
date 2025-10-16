@@ -46,7 +46,14 @@ export default function ChessApp() {
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [gameResult, setGameResult] = useState<string | null>(null); // '1-0', '0-1', '1/2-1/2', or null
   const [gameMode, setGameMode] = useState<'human' | 'ai' | 'trainer'>('human');
+  const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard' | 'expert'>('medium');
+  const [aiThinking, setAiThinking] = useState(false);
   const [stockfishReady, setStockfishReady] = useState(false);
+  
+  // Initialize refs with current state to avoid closure issues in setTimeout callbacks
+  const gameModeRef = useRef<'human' | 'ai' | 'trainer'>(gameMode);
+  const currentPlayerRef = useRef<'white' | 'black'>(currentPlayer);
+  const boardRef = useRef<Board>(board);
   const [moveEvaluations, setMoveEvaluations] = useState<Record<string, number>>({});
   const [bestMoveEval, setBestMoveEval] = useState<number | null>(null); // Store the absolute best move evaluation
   const [currentEvaluation, setCurrentEvaluation] = useState<number>(0); // Current position evaluation in centipawns
@@ -67,6 +74,8 @@ export default function ChessApp() {
   const stockfishRef = useRef<any>(null);
   const analyzingSelectedPiece = useRef<boolean>(false);
   const analysisInProgress = useRef<boolean>(false);
+  const aiMoveCandidates = useRef<Array<{move: string, eval: number}>>([]);
+  const waitingForAIMove = useRef<boolean>(false);
 
   // Convert UCI notation (e2e4) to algebraic notation (e4, Nf3, etc.)
   // Convert UCI move to algebraic notation with board state
@@ -280,21 +289,95 @@ export default function ChessApp() {
           if (message === 'uciok') {
             setStockfishReady(true);
             console.log('✅ Stockfish engine ready!');
+            
+            // If we're in AI mode and it's Black's turn, trigger AI move
+            if (gameMode === 'ai' && currentPlayer === 'black' && !aiThinking && !waitingForAIMove.current) {
+              console.log('🔄 Retrying AI move after worker restart...');
+              setTimeout(getStockfishMove, 500);
+            }
           }
           
           // Check if analysis is complete
           if (message.startsWith && message.startsWith('bestmove')) {
             analysisInProgress.current = false;
             console.log('✅ Analysis complete');
+            
+            // If we're waiting for an AI move, execute it
+            if (waitingForAIMove.current) {
+              // Check for "bestmove (none)" - this means no legal moves (checkmate or stalemate)
+              if (message.includes('bestmove (none)')) {
+                console.error('🏁 Stockfish returned no legal moves!');
+                console.error('🏁 Current FEN:', boardToFEN());
+                console.error('🏁 gameResult:', gameResult);
+                console.error('🏁 This should only happen in checkmate/stalemate');
+                
+                // Try to make a random legal move as fallback
+                console.log('🔄 Attempting fallback: making random legal move');
+                setAiThinking(false);
+                waitingForAIMove.current = false;
+                aiMoveQueuedRef.current = false;
+                
+                // Use setTimeout to avoid React state update conflicts
+                setTimeout(() => {
+                  makeRandomMove();
+                }, 100);
+                return;
+              }
+              
+              const moveMatch = message.match(/bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/);
+              if (moveMatch) {
+                const selectedMove = selectAIMove();
+                if (selectedMove) {
+                  console.log(`🤖 AI selected: ${selectedMove} from candidates:`, aiMoveCandidates.current.map(c => c?.move));
+                  
+                  // Clear flag IMMEDIATELY to prevent duplicate execution
+                  waitingForAIMove.current = false;
+                  
+                  // Small delay for visual effect, then execute
+                  setTimeout(() => executeAIMove(selectedMove), 300);
+                } else {
+                  // Easy mode: 50% chance of random move
+                  console.log('🎲 Easy AI: Making completely random legal move');
+                  waitingForAIMove.current = false;
+                  setAiThinking(false);
+                  aiMoveQueuedRef.current = false;
+                  setTimeout(() => makeRandomMove(), 300);
+                }
+              } else {
+                console.error('Failed to parse bestmove from:', message);
+                setAiThinking(false);
+                waitingForAIMove.current = false;
+                aiMoveQueuedRef.current = false;
+              }
+            }
           }
           
-          // Parse multi-pv lines for move evaluations
+          // Parse multi-pv lines for move evaluations (and collect AI move candidates)
           if (message.startsWith && message.startsWith('info') && message.includes('multipv')) {
+            // Collect AI move candidates when waiting for AI move
+            if (waitingForAIMove.current) {
+              const multipvMatch = message.match(/multipv (\d+)/);
+              const scoreMatch = message.match(/score cp (-?\d+)/);
+              const pvMatch = message.match(/\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+              
+              if (multipvMatch && scoreMatch && pvMatch) {
+                const pvIndex = parseInt(multipvMatch[1]);
+                const centipawns = parseInt(scoreMatch[1]);
+                const move = pvMatch[1];
+                
+                // Add to candidates (convert to Black's perspective since AI plays black)
+                const evalForBlack = -centipawns; // Flip for Black's benefit
+                aiMoveCandidates.current[pvIndex - 1] = { move, eval: evalForBlack };
+                console.log(`🤖 AI candidate ${pvIndex}: ${move} (${evalForBlack} cp for Black)`);
+              }
+            }
+            
             // Use different parser depending on whether we're analyzing selected piece or whole position
             if (analyzingSelectedPiece.current) {
               console.log('🔧 Parsing piece-specific eval:', message.substring(0, 100));
               parseSelectedPieceEval(message);
-            } else {
+            } else if (!waitingForAIMove.current) {
+              // Only parse for UI if not waiting for AI move
               parseStockfishEval(message);
             }
           }
@@ -312,6 +395,11 @@ export default function ChessApp() {
           setStockfishReady(false);
           analyzingSelectedPiece.current = false;
           analysisInProgress.current = false;
+          
+          // Clear AI move state to prevent executing stale moves
+          waitingForAIMove.current = false;
+          aiMoveCandidates.current = [];
+          setAiThinking(false);
           
           // Recreate worker after a delay
           setTimeout(() => {
@@ -346,12 +434,58 @@ export default function ChessApp() {
     };
   }, []);
 
+  // Trigger AI move when it's Black's turn in AI mode
+  // Use a ref to track if we've already queued an AI move for this position
+  const aiMoveQueuedRef = useRef(false);
+  
+  useEffect(() => {
+    console.log(`🔍 AI useEffect triggered - gameMode: ${gameMode}, currentPlayer: ${currentPlayer}, stockfishReady: ${stockfishReady}, aiThinking: ${aiThinking}, waitingForAIMove: ${waitingForAIMove.current}, aiMoveQueued: ${aiMoveQueuedRef.current}`);
+    
+    // Keep refs in sync with state
+    gameModeRef.current = gameMode;
+    currentPlayerRef.current = currentPlayer;
+    boardRef.current = board;
+    
+    // Only trigger AI move when all conditions are met AND flag is not set
+    if (gameMode === 'ai' && 
+        currentPlayer === 'black' && 
+        stockfishReady && 
+        !aiThinking && 
+        !waitingForAIMove.current && 
+        !aiMoveQueuedRef.current && 
+        gameResult === null) {
+      
+      console.log('✅ Triggering AI move via useEffect (currentPlayer changed to black)');
+      aiMoveQueuedRef.current = true;
+      setTimeout(() => {
+        getStockfishMove();
+      }, 300);
+    }
+    // CRITICAL: Reset the flag when turn switches back to White
+    // This must happen to allow AI to move again on the NEXT Black turn
+    else if (currentPlayer === 'white') {
+      if (aiMoveQueuedRef.current || waitingForAIMove.current || aiThinking) {
+        console.log('🔄 Turn switched to White - clearing ALL AI flags');
+        aiMoveQueuedRef.current = false;
+        waitingForAIMove.current = false;
+        setAiThinking(false);
+      }
+    }
+  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult]);
+
   // Evaluate all legal moves in trainer or AI mode (only when no piece is selected)
   useEffect(() => {
-    if ((gameMode === 'trainer' || gameMode === 'ai') && stockfishReady && !selectedSquare) {
+    // Skip evaluation if AI is currently making a move
+    if (waitingForAIMove.current || aiThinking) {
+      console.log('⏭️ Skipping evaluateAllMoves - AI is thinking/moving');
+      return;
+    }
+    
+    // DISABLE evaluation in AI mode - only use for trainer mode
+    if (gameMode === 'trainer' && stockfishReady && !selectedSquare) {
       evaluateAllMoves();
     }
-  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare]);
+  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking]);
 
   // When piece is selected, use evaluations from general analysis
   // (Don't do piece-specific analysis since getValidMovesForBoard doesn't check for check/pins)
@@ -477,8 +611,10 @@ export default function ChessApp() {
   };
 
   const boardToFEN = () => {
+    // CRITICAL: Use boardRef to get current board state (avoid stale state in closures)
+    const currentBoard = boardRef.current;
     let fen = '';
-    for (let row of board) {
+    for (let row of currentBoard) {
       let emptyCount = 0;
       for (let piece of row) {
         if (piece === '') {
@@ -506,7 +642,19 @@ export default function ChessApp() {
     }
     
     // Add turn, castling, en passant, halfmove, and fullmove
-    fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} KQkq - 0 1`;
+    // Build castling rights string based on whether kings/rooks have moved
+    let castling = '';
+    if (!kingMoved.white) {
+      if (!rookMoved.whiteKingSide) castling += 'K';
+      if (!rookMoved.whiteQueenSide) castling += 'Q';
+    }
+    if (!kingMoved.black) {
+      if (!rookMoved.blackKingSide) castling += 'k';
+      if (!rookMoved.blackQueenSide) castling += 'q';
+    }
+    if (castling === '') castling = '-';
+    
+    fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} ${castling} - 0 1`;
     
     return fen;
   };
@@ -552,25 +700,238 @@ export default function ChessApp() {
   };
 
   const getStockfishMove = () => {
-    if (!stockfishRef.current) return;
+    if (!stockfishRef.current || !stockfishReady) {
+      console.warn('Stockfish not ready for AI move');
+      return;
+    }
+    
+    // CRITICAL: Prevent duplicate calls
+    if (waitingForAIMove.current) {
+      console.warn('⚠️ Already waiting for AI move, ignoring duplicate call');
+      return;
+    }
+    
+    // CRITICAL: Verify it's actually Black's turn before requesting AI move
+    if (currentPlayerRef.current !== 'black') {
+      console.warn(`⚠️ Skipping AI move - currentPlayerRef is ${currentPlayerRef.current}, expected black`);
+      return;
+    }
+    
+    // Easy mode: 100% random moves, skip Stockfish entirely
+    if (aiDifficulty === 'easy') {
+      console.log('🎲 Easy AI: Making 100% random move (no Stockfish analysis)');
+      setAiThinking(true);
+      setTimeout(() => {
+        setAiThinking(false);
+        makeRandomMove();
+      }, 300); // Small delay for visual effect
+      return;
+    }
+    
+    setAiThinking(true);
+    waitingForAIMove.current = true;
+    aiMoveCandidates.current = []; // Clear previous candidates
+    
     const fen = boardToFEN();
-    stockfishRef.current.postMessage(`position fen ${fen}`);
-    stockfishRef.current.postMessage('go depth 10');
-    setTimeout(() => {
-      makeRandomMove();
-    }, 1000);
+    console.log(`🤖 AI (${aiDifficulty}) requesting move for position: ${fen}`);
+    
+    // Configure engine based on difficulty
+    const difficultySettings = {
+      easy: { depth: 1, multiPV: 10 },     // Not used anymore for easy
+      medium: { depth: 10, multiPV: 3 },   // Medium depth, weighted top 3
+      hard: { depth: 15, multiPV: 3 },     // Deep search, weighted top 3
+      expert: { depth: 20, multiPV: 1 }    // Maximum depth, always best
+    };
+    
+    const settings = difficultySettings[aiDifficulty];
+    
+    try {
+      stockfishRef.current.postMessage('stop');
+      stockfishRef.current.postMessage(`setoption name MultiPV value ${settings.multiPV}`);
+      stockfishRef.current.postMessage(`position fen ${fen}`);
+      stockfishRef.current.postMessage(`go depth ${settings.depth}`);
+    } catch (error) {
+      console.error('Error requesting AI move:', error);
+      setAiThinking(false);
+      waitingForAIMove.current = false;
+    }
+  };
+
+  // Execute AI move from UCI notation
+  const executeAIMove = (uciMove: string) => {
+    console.log(`🤖 AI executing move: ${uciMove} (currentPlayer: ${currentPlayer}, gameMode: ${gameMode}, gameModeRef: ${gameModeRef.current}, currentPlayerRef: ${currentPlayerRef.current})`);
+    
+    // CRITICAL: Verify we're still in AI mode using REF (user might have switched modes during setTimeout)
+    if (gameModeRef.current !== 'ai') {
+      console.warn(`⚠️ ABORT: Game mode changed to ${gameModeRef.current} before AI could move (setTimeout closure had: ${gameMode})`);
+      setAiThinking(false);
+      waitingForAIMove.current = false;
+      aiMoveQueuedRef.current = false;
+      return;
+    }
+    
+    // CRITICAL: Double-check it's actually Black's turn using REF (not stale state from closure)
+    if (currentPlayerRef.current !== 'black') {
+      console.error(`❌ ABORT: AI tried to move when currentPlayerRef is ${currentPlayerRef.current}, not black! (state closure had: ${currentPlayer})`);
+      setAiThinking(false);
+      waitingForAIMove.current = false;
+      aiMoveQueuedRef.current = false;
+      return;
+    }
+    
+    // Parse UCI move: e2e4, g1f3, e7e8q (with promotion)
+    const fromSquare = uciMove.substring(0, 2);
+    const toSquare = uciMove.substring(2, 4);
+    const promotion = uciMove.length > 4 ? uciMove[4] : '';
+    
+    const fromCol = fromSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+    const fromRow = 8 - parseInt(fromSquare[1]);
+    const toCol = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+    const toRow = 8 - parseInt(toSquare[1]);
+    
+    // CRITICAL: Use boardRef to get the CURRENT board state (avoid stale closure)
+    const currentBoard = boardRef.current;
+    
+    // GUARD: Verify the piece at source square is black
+    const piece = currentBoard[fromRow][fromCol];
+    if (!piece || piece !== piece.toLowerCase()) {
+      console.error(`❌ Invalid AI move ${uciMove}: No black piece at source square. Piece: ${piece || 'empty'}, currentPlayerRef: ${currentPlayerRef.current}`);
+      console.error(`❌ Board state at [${fromRow},${fromCol}]:`, currentBoard[fromRow]);
+      setAiThinking(false);
+      waitingForAIMove.current = false;
+      aiMoveQueuedRef.current = false;
+      return;
+    }
+    
+    console.log(`🎯 Executing AI move: ${piece} from [${fromRow},${fromCol}] to [${toRow},${toCol}]`);
+    
+    // Check for castling
+    let castleType: string | undefined = undefined;
+    
+    if (piece && piece.toLowerCase() === 'k' && Math.abs(toCol - fromCol) === 2) {
+      castleType = toCol > fromCol ? 'castle-kingside' : 'castle-queenside';
+    }
+    
+    // Check for en passant
+    const isEnPassant = piece && piece.toLowerCase() === 'p' && 
+                        Math.abs(toCol - fromCol) === 1 && 
+                        currentBoard[toRow][toCol] === '' &&
+                        enPassantTarget &&
+                        enPassantTarget[0] === toRow &&
+                        enPassantTarget[1] === toCol;
+    
+    // Execute the move
+    movePiece(fromRow, fromCol, toRow, toCol, castleType, isEnPassant);
+    
+    // Clear aiThinking immediately so UI updates, but let useEffect clear the other flags
+    setAiThinking(false);
+    console.log(`✅ AI move executed, aiThinking cleared, waiting for turn switch...`);
+  };
+
+  // Select AI move based on difficulty and randomization
+  const selectAIMove = (): string | null => {
+    if (aiMoveCandidates.current.length === 0) {
+      console.warn('No AI move candidates available');
+      return null;
+    }
+    
+    // Filter out undefined entries (sparse array from multipv indexing)
+    const candidates = aiMoveCandidates.current.filter(c => c !== undefined && c.move);
+    
+    if (candidates.length === 0) {
+      console.warn('No valid AI move candidates after filtering');
+      return null;
+    }
+    
+    console.log(`🎲 Selecting from ${candidates.length} candidate moves:`, candidates);
+    
+    // Easy: 80% completely random legal move, 20% pick from top moves at depth 1
+    if (aiDifficulty === 'easy') {
+      if (Math.random() < 0.2) {
+        // Only 20% of the time: Pick randomly from Stockfish top moves (depth 1)
+        const randomIndex = Math.floor(Math.random() * candidates.length);
+        console.log(`🎲 Easy AI: Picking from top ${candidates.length} moves at depth 1 (20% chance)`);
+        return candidates[randomIndex].move;
+      } else {
+        // 80% of the time: Pick completely random legal move
+        console.log(`🎲 Easy AI: Making completely random legal move (80% blunder chance)`);
+        return null; // Return null to trigger random move
+      }
+    }
+    
+    // Medium: Weighted random (60% best, 25% 2nd, 15% 3rd)
+    if (aiDifficulty === 'medium') {
+      const rand = Math.random();
+      if (rand < 0.60 && candidates.length >= 1) return candidates[0].move;
+      if (rand < 0.85 && candidates.length >= 2) return candidates[1].move;
+      if (candidates.length >= 3) return candidates[2].move;
+      return candidates[0].move;
+    }
+    
+    // Hard: Weighted random (80% best, 15% 2nd, 5% 3rd)
+    if (aiDifficulty === 'hard') {
+      const rand = Math.random();
+      if (rand < 0.80 && candidates.length >= 1) return candidates[0].move;
+      if (rand < 0.95 && candidates.length >= 2) return candidates[1].move;
+      if (candidates.length >= 3) return candidates[2].move;
+      return candidates[0].move;
+    }
+    
+    // Expert: Always best move
+    return candidates[0].move;
   };
 
   const makeRandomMove = () => {
     setBoard(currentBoard => {
-      const allMoves: { from: [number, number]; to: number[] }[] = [];
+      const allMoves: { from: [number, number]; to: Array<number | string> }[] = [];
+      
+      // Collect all LEGAL moves for black pieces (filter out moves that leave king in check)
       for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
           const piece = currentBoard[row][col];
           if (piece && piece === piece.toLowerCase() && piece !== '') {
-            const moves = getValidMovesForBoard(currentBoard, row, col);
-            moves.forEach(move => {
-              allMoves.push({ from: [row, col], to: move });
+            // Get pseudo-legal moves
+            const pseudoLegalMoves = getValidMovesForBoard(currentBoard, row, col);
+            
+            // Filter to only legal moves (don't leave king in check)
+            pseudoLegalMoves.forEach(move => {
+              const [toRow, toCol, special] = move as [number, number, any];
+              
+              // Simulate the move
+              const testBoard = currentBoard.map(r => [...r]);
+              const movingPiece = testBoard[row][col];
+              
+              // Handle castling simulation
+              if (typeof special === 'string' && special.includes('castle')) {
+                if (special === 'castle-kingside') {
+                  testBoard[toRow][toCol] = movingPiece;
+                  testBoard[row][col] = '';
+                  testBoard[toRow][5] = testBoard[toRow][7];
+                  testBoard[toRow][7] = '';
+                } else if (special === 'castle-queenside') {
+                  testBoard[toRow][toCol] = movingPiece;
+                  testBoard[row][col] = '';
+                  testBoard[toRow][3] = testBoard[toRow][0];
+                  testBoard[toRow][0] = '';
+                }
+              }
+              // Handle en passant simulation
+              else if (special === 1) {
+                testBoard[toRow][toCol] = movingPiece;
+                testBoard[row][col] = '';
+                // Remove the captured pawn (same row as moving pawn, target column)
+                testBoard[row][toCol] = '';
+              }
+              // Normal move
+              else {
+                testBoard[toRow][toCol] = movingPiece;
+                testBoard[row][col] = '';
+              }
+              
+              // Only add move if it doesn't leave black king in check
+              if (!isKingInCheck(testBoard, 'black')) {
+                allMoves.push({ from: [row, col], to: move });
+              }
             });
           }
         }
@@ -580,11 +941,37 @@ export default function ChessApp() {
         const randomMove = allMoves[Math.floor(Math.random() * allMoves.length)];
         const newBoard = currentBoard.map(r => [...r]);
         const piece = newBoard[randomMove.from[0]][randomMove.from[1]];
-        newBoard[randomMove.to[0]][randomMove.to[1]] = piece;
-        newBoard[randomMove.from[0]][randomMove.from[1]] = '';
+        const [toRow, toCol, special] = randomMove.to as [number, number, any];
+        
+        // Handle castling
+        if (typeof special === 'string' && special.includes('castle')) {
+          if (special === 'castle-kingside') {
+            newBoard[toRow][toCol] = piece;
+            newBoard[randomMove.from[0]][randomMove.from[1]] = '';
+            newBoard[toRow][5] = newBoard[toRow][7];
+            newBoard[toRow][7] = '';
+          } else if (special === 'castle-queenside') {
+            newBoard[toRow][toCol] = piece;
+            newBoard[randomMove.from[0]][randomMove.from[1]] = '';
+            newBoard[toRow][3] = newBoard[toRow][0];
+            newBoard[toRow][0] = '';
+          }
+        }
+        // Handle en passant
+        else if (special === 1) {
+          newBoard[toRow][toCol] = piece;
+          newBoard[randomMove.from[0]][randomMove.from[1]] = '';
+          // Remove captured pawn
+          newBoard[randomMove.from[0]][toCol] = '';
+        }
+        // Normal move
+        else {
+          newBoard[toRow][toCol] = piece;
+          newBoard[randomMove.from[0]][randomMove.from[1]] = '';
+        }
 
         const files = 'abcdefgh';
-        const move = `${files[randomMove.from[1]]}${8 - randomMove.from[0]}${files[randomMove.to[1]]}${8 - randomMove.to[0]}`;
+        const move = `${files[randomMove.from[1]]}${8 - randomMove.from[0]}${files[toCol]}${8 - toRow}`;
         setMoveHistory(prev => {
           const newHistory = [...prev, move];
           fetchOpeningInfo(newHistory);
@@ -607,9 +994,9 @@ export default function ChessApp() {
 
   const getValidMovesForBoard = (boardState: Board, row: number, col: number) => {
     const piece = boardState[row][col];
-    if (!piece) return [] as number[][];
+    if (!piece) return [] as Array<Array<number | string>>;
 
-    const moves: Array<number[]> = [];
+    const moves: Array<Array<number | string>> = [];
     const pieceType = piece.toLowerCase();
     const isWhite = piece === piece.toUpperCase();
     const direction = isWhite ? -1 : 1;
@@ -717,17 +1104,25 @@ export default function ChessApp() {
       // Castling (basic checks similar to original)
       if (isWhite) {
         if (!kingMoved.white && !rookMoved.whiteKingSide) {
-          if (boardState[7][5] === '' && boardState[7][6] === '' && boardState[7][7] === 'R') moves.push([7, 6]);
+          if (boardState[7][5] === '' && boardState[7][6] === '' && boardState[7][7] === 'R') {
+            moves.push([7, 6, 'castle-kingside']);
+          }
         }
         if (!kingMoved.white && !rookMoved.whiteQueenSide) {
-          if (boardState[7][1] === '' && boardState[7][2] === '' && boardState[7][3] === '' && boardState[7][0] === 'R') moves.push([7, 2]);
+          if (boardState[7][1] === '' && boardState[7][2] === '' && boardState[7][3] === '' && boardState[7][0] === 'R') {
+            moves.push([7, 2, 'castle-queenside']);
+          }
         }
       } else {
         if (!kingMoved.black && !rookMoved.blackKingSide) {
-          if (boardState[0][5] === '' && boardState[0][6] === '' && boardState[0][7] === 'r') moves.push([0, 6]);
+          if (boardState[0][5] === '' && boardState[0][6] === '' && boardState[0][7] === 'r') {
+            moves.push([0, 6, 'castle-kingside']);
+          }
         }
         if (!kingMoved.black && !rookMoved.blackQueenSide) {
-          if (boardState[0][1] === '' && boardState[0][2] === '' && boardState[0][3] === '' && boardState[0][0] === 'r') moves.push([0, 2]);
+          if (boardState[0][1] === '' && boardState[0][2] === '' && boardState[0][3] === '' && boardState[0][0] === 'r') {
+            moves.push([0, 2, 'castle-queenside']);
+          }
         }
       }
     }
@@ -932,10 +1327,36 @@ export default function ChessApp() {
     const legalMoves = pseudoLegalMoves.filter(move => {
       // Simulate the move
       const testBoard = board.map(r => [...r]);
-      const [toRow, toCol] = move as [number, number];
+      const [toRow, toCol, special] = move as [number, number, any];
       
-      testBoard[toRow][toCol] = testBoard[row][col];
-      testBoard[row][col] = '';
+      const movingPiece = testBoard[row][col];
+      
+      // Handle castling simulation
+      if (typeof special === 'string' && special.includes('castle')) {
+        if (special === 'castle-kingside') {
+          testBoard[toRow][toCol] = movingPiece;
+          testBoard[row][col] = '';
+          testBoard[toRow][5] = testBoard[toRow][7];
+          testBoard[toRow][7] = '';
+        } else if (special === 'castle-queenside') {
+          testBoard[toRow][toCol] = movingPiece;
+          testBoard[row][col] = '';
+          testBoard[toRow][3] = testBoard[toRow][0];
+          testBoard[toRow][0] = '';
+        }
+      }
+      // Handle en passant simulation
+      else if (special === 1) {
+        testBoard[toRow][toCol] = movingPiece;
+        testBoard[row][col] = '';
+        // Remove the captured pawn (same row as moving pawn, target column)
+        testBoard[row][toCol] = '';
+      }
+      // Normal move
+      else {
+        testBoard[toRow][toCol] = movingPiece;
+        testBoard[row][col] = '';
+      }
       
       // Check if this move would leave our king in check
       return !isKingInCheck(testBoard, pieceColor);
@@ -998,19 +1419,37 @@ export default function ChessApp() {
   };
 
   const movePiece = (fromRow: number, fromCol: number, toRow: number, toCol: number, castleType?: string, isEnPassant?: boolean) => {
-    const newBoard = board.map(r => [...r]);
+    console.log(`🎯 movePiece called: [${fromRow},${fromCol}] → [${toRow},${toCol}], castleType: ${castleType}, enPassant: ${isEnPassant}`);
+    
+    // CRITICAL: Use boardRef to get current board state (avoid stale state in async callbacks)
+    const currentBoard = boardRef.current;
+    const newBoard = currentBoard.map(r => [...r]);
     const piece = newBoard[fromRow][fromCol];
+    
+    console.log(`🎯 Moving piece: ${piece || 'EMPTY'} from [${fromRow},${fromCol}] to [${toRow},${toCol}]`);
+
+    // Auto-detect castling if not explicitly set: king moving 2 squares horizontally
+    if (!castleType && piece && piece.toLowerCase() === 'k' && Math.abs(toCol - fromCol) === 2) {
+      castleType = toCol > fromCol ? 'castle-kingside' : 'castle-queenside';
+      console.log(`🏰 Auto-detected castling: ${castleType}`);
+    }
 
     if (castleType === 'castle-kingside') {
-      newBoard[toRow][toCol] = piece;
+      console.log(`🏰 Kingside castling: King to [${toRow},${toCol}], Rook from [${toRow},7] to [${toRow},5]`);
+      console.log(`🏰 Before: Rook at [${toRow},7] = ${newBoard[toRow][7]}`);
+      newBoard[toRow][toCol] = piece; // Move king to g-file (col 6)
       newBoard[fromRow][fromCol] = '';
-      newBoard[toRow][5] = newBoard[toRow][7];
+      newBoard[toRow][5] = newBoard[toRow][7]; // Move rook from h-file (col 7) to f-file (col 5)
       newBoard[toRow][7] = '';
+      console.log(`🏰 After: Rook at [${toRow},5] = ${newBoard[toRow][5]}, old position [${toRow},7] = ${newBoard[toRow][7]}`);
     } else if (castleType === 'castle-queenside') {
-      newBoard[toRow][toCol] = piece;
+      console.log(`🏰 Queenside castling: King to [${toRow},${toCol}], Rook from [${toRow},0] to [${toRow},3]`);
+      console.log(`🏰 Before: Rook at [${toRow},0] = ${newBoard[toRow][0]}`);
+      newBoard[toRow][toCol] = piece; // Move king to c-file (col 2)
       newBoard[fromRow][fromCol] = '';
-      newBoard[toRow][3] = newBoard[toRow][0];
+      newBoard[toRow][3] = newBoard[toRow][0]; // Move rook from a-file (col 0) to d-file (col 3)
       newBoard[toRow][0] = '';
+      console.log(`🏰 After: Rook at [${toRow},3] = ${newBoard[toRow][3]}, old position [${toRow},0] = ${newBoard[toRow][0]}`);
     } else if (isEnPassant) {
       // En passant: move pawn and remove captured pawn
       newBoard[toRow][toCol] = piece;
@@ -1076,7 +1515,10 @@ export default function ChessApp() {
     const newHistory = [...moveHistory, move];
     setMoveHistory(newHistory);
 
-    const nextPlayer = currentPlayer === 'white' ? 'black' : 'white';
+    // CRITICAL: Calculate next player from the piece that JUST MOVED, not from currentPlayer state
+    // (currentPlayer state may be stale in async callbacks)
+    const nextPlayer = isWhite ? 'black' : 'white';
+    console.log(`🔄 Turn switching: piece was ${isWhite ? 'white' : 'black'}, next player: ${nextPlayer}`);
     setCurrentPlayer(nextPlayer);
 
     // Check for checkmate or stalemate
@@ -1092,7 +1534,7 @@ export default function ChessApp() {
       console.warn('Opening info fetch failed, continuing game:', err);
     });
 
-    if (gameMode === 'ai' && nextPlayer === 'black') setTimeout(getStockfishMove, 500);
+    // AI move is now triggered by useEffect when currentPlayer changes to 'black'
   };
 
   const resetGame = () => {
@@ -1135,7 +1577,13 @@ export default function ChessApp() {
               <div className="flex justify-between items-center mb-4">
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setGameMode('human')}
+                    onClick={() => {
+                      // Cancel any pending AI moves when switching to human mode
+                      setAiThinking(false);
+                      waitingForAIMove.current = false;
+                      aiMoveQueuedRef.current = false;
+                      setGameMode('human');
+                    }}
                     className={`px-4 py-2 rounded-lg font-medium transition ${
                       gameMode === 'human'
                         ? 'bg-blue-500 text-white'
@@ -1175,6 +1623,22 @@ export default function ChessApp() {
                     Move Trainer
                   </button>
                 </div>
+                {/* AI Difficulty Selector */}
+                {gameMode === 'ai' && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-white text-sm font-medium">Difficulty:</span>
+                    <select
+                      value={aiDifficulty}
+                      onChange={(e) => setAiDifficulty(e.target.value as any)}
+                      className="px-3 py-1.5 rounded-lg bg-white/20 text-white border border-white/30 text-sm font-medium hover:bg-white/30 transition cursor-pointer"
+                    >
+                      <option value="easy" className="bg-gray-800">Easy</option>
+                      <option value="medium" className="bg-gray-800">Medium</option>
+                      <option value="hard" className="bg-gray-800">Hard</option>
+                      <option value="expert" className="bg-gray-800">Expert</option>
+                    </select>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   {gameMode === 'trainer' && (
                     <>
@@ -1297,11 +1761,16 @@ export default function ChessApp() {
                   {gameResult ? (
                     gameResult === '1/2-1/2' ? 'Draw - Stalemate' : 
                     gameResult === '1-0' ? '⚪ White won' : '⚫ Black won'
+                  ) : aiThinking ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Cpu className="animate-spin" size={20} />
+                      AI is thinking... ({aiDifficulty})
+                    </span>
                   ) : (
                     `Current Turn: ${currentPlayer === 'white' ? '⚪ White' : '⚫ Black'}`
                   )}
                 </p>
-                {stockfishReady && gameMode === 'ai' && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Engine Ready</p>)}
+                {stockfishReady && gameMode === 'ai' && !aiThinking && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Engine Ready ({aiDifficulty} mode)</p>)}
                 {gameMode === 'trainer' && (
                   <div className="mt-3 text-sm">
                     <p className="font-semibold mb-2 text-base">Move Quality Legend:</p>
