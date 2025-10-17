@@ -119,7 +119,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 ## Technology Stack
 
-- **Next.js 15.5.4**: React framework with App Router
+- **Next.js 15.5.4**: React framework with Pages Router
 - **TypeScript**: Type-safe development
 - **Tailwind CSS**: Utility-first styling
 - **Supabase**: Optional backend for game storage

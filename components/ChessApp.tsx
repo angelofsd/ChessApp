@@ -653,8 +653,17 @@ export default function ChessApp() {
       if (!rookMoved.blackQueenSide) castling += 'q';
     }
     if (castling === '') castling = '-';
-    
-    fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} ${castling} - 0 1`;
+
+    // En passant target square (FEN field): use tracked target if available
+    // Note: This records the square jumped over after a two-square pawn move
+    let epSquare = '-';
+    if (enPassantTarget) {
+      const [epRow, epCol] = enPassantTarget;
+      const files = 'abcdefgh';
+      epSquare = `${files[epCol]}${8 - epRow}`;
+    }
+
+    fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} ${castling} ${epSquare} 0 1`;
     
     return fen;
   };
@@ -1291,11 +1300,37 @@ export default function ChessApp() {
         // Check if any move is actually legal (doesn't leave king in check)
         for (const move of pseudoLegalMoves) {
           const testBoard = boardState.map(r => [...r]);
-          const [toRow, toCol] = move as [number, number];
-          
-          testBoard[toRow][toCol] = testBoard[row][col];
-          testBoard[row][col] = '';
-          
+          const [toRow, toCol, special] = move as [number, number, any];
+
+          const movingPiece = testBoard[row][col];
+
+          // Handle castling simulation
+          if (typeof special === 'string' && special.includes('castle')) {
+            if (special === 'castle-kingside') {
+              testBoard[toRow][toCol] = movingPiece;
+              testBoard[row][col] = '';
+              testBoard[toRow][5] = testBoard[toRow][7];
+              testBoard[toRow][7] = '';
+            } else if (special === 'castle-queenside') {
+              testBoard[toRow][toCol] = movingPiece;
+              testBoard[row][col] = '';
+              testBoard[toRow][3] = testBoard[toRow][0];
+              testBoard[toRow][0] = '';
+            }
+          }
+          // Handle en passant simulation
+          else if (special === 1) {
+            testBoard[toRow][toCol] = movingPiece;
+            testBoard[row][col] = '';
+            // Remove the captured pawn (same row as moving pawn, target column)
+            testBoard[row][toCol] = '';
+          }
+          // Normal move
+          else {
+            testBoard[toRow][toCol] = movingPiece;
+            testBoard[row][col] = '';
+          }
+
           if (!isKingInCheck(testBoard, color)) {
             return true; // Found at least one legal move
           }
