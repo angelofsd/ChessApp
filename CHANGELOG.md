@@ -14,6 +14,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.5.0] - 2025-11-30
+
+### Added
+- **Play as Black Option** ⚫
+  - Choose to play as White or Black in AI mode
+  - Board automatically flips when playing as Black
+  - AI makes the first move when player chooses Black
+  - Compact UI buttons: ⚪ and ⚫ for color selection
+- **Mate-in-X Detection** ♔
+  - Evaluation bar shows M2, M3, etc. when checkmate is forced
+  - Green background for winning (you're mating)
+  - Red background for losing (being mated)
+  - Parses Stockfish `score mate X` responses
+  - Adjusts display for player's perspective in AI mode
+- **Optional Evaluation Bar in AI Mode** 📊
+  - Toggle button to show/hide evaluation bar
+  - Off by default (to avoid spoiling the game)
+  - Always visible in Move Trainer mode
+- **Improved Castling Validation** 🏰
+  - Cannot castle when king is in check
+  - Cannot castle through check (king passes attacked square)
+  - Cannot castle into check
+  - Uses `isSquareUnderAttack()` for proper validation
+- **Check Notation in Move History** ✓
+  - Castling moves now show + for check and # for checkmate
+  - Fixed move history replay to handle castling and en passant
+  - Board state properly reconstructed for accurate notation
+
+### Fixed
+- **Critical: AI Castling While in Check** 🛡️
+  - AI could castle when its king was in check
+  - Now properly validates all three castling conditions
+- **Move History Check Detection**
+  - Castling moves now show check/checkmate symbols
+  - Fixed board state replay not handling special moves
+  - En passant and castling properly simulated in history
+- **AI Not Moving When Player is Black**
+  - Added `playerColorRef` to track player color in async callbacks
+  - Reset function now syncs refs immediately
+  - AI triggers correctly after player selects Black
+- **Cramped Button Ribbon in AI Mode**
+  - Made all buttons more compact
+  - Removed verbose labels ("Play as:", "Difficulty:")
+  - Color buttons now just show ⚪ and ⚫
+  - Added flex-wrap for smaller screens
+
+### Changed
+- UI buttons in AI mode are now more compact
+- "Move Trainer" shortened to "Trainer" in button
+- Difficulty dropdown is more compact
+
+### Technical
+- Added `playerColorRef` for async callback consistency
+- `resetGame()` now syncs `currentPlayerRef` and `boardRef` immediately
+- `makeRandomMove()` now works for both AI colors
+- Castling validation uses `isSquareUnderAttack()` for all checks
+- Move history properly simulates castling (both pieces) and en passant
+
 ## [0.4.0] - 2025-10-15
 
 ### Added

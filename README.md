@@ -8,10 +8,13 @@ A modern chess application with multiple training modes, AI opponent, and openin
 - **Play vs Human**: Two-player local chess game with full chess rules
 - **Play vs AI**: 
   - Four difficulty levels: **Easy**, **Medium**, **Hard**, **Expert**
+  - **Play as White or Black**: Choose your side with board auto-flip
+  - **Optional evaluation bar**: Toggle to see position analysis
   - Easy: Random moves (great for beginners)
   - Medium: Stockfish depth 10, weighted selection (60%/25%/15%)
   - Hard: Stockfish depth 15, weighted selection (80%/15%/5%)
   - Expert: Stockfish depth 20, always best move
+  - **Mate-in-X detection**: Shows M2, M3, etc. on evaluation bar
 - **Move Trainer Mode**: 
   - Real-time Stockfish 17.1 engine analysis
   - Color-coded move hints (green = best, red = blunder)
@@ -19,16 +22,18 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - Top 20 moves analyzed at depth 15
   - Moves outside top 20 marked as blunders
   - **Evaluation bar showing position strength from White's perspective**
+  - **Mate-in-X display**: Shows M2, M3, etc. when checkmate is forced
 - **Chess Rules Implemented**:
   - All piece movements (pawns, knights, bishops, rooks, queens, kings)
   - Castling (kingside and queenside) with full legality checking
+  - **Castling blocked when king in check, passing through check, or ending in check**
   - En passant capture
   - Pawn promotion (to Queen)
   - Check detection and visualization
   - Checkmate and stalemate detection
   - **Legal move enforcement**: King cannot move into check, pieces cannot move if it leaves king in check
+- **Move History**: Track all moves in algebraic notation with check (+) and checkmate (#) symbols
 - **SVG Pieces**: High-quality Wikipedia Commons chess pieces
-- **Move History**: Track all moves in algebraic notation with chess piece symbols
 - **Opening Explorer**: Integration with Lichess API for opening statistics
 - **Game Persistence**: Save games to Supabase (optional)
 - **Responsive Design**: Beautiful gradient UI with Tailwind CSS
@@ -93,12 +98,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 ### vs AI
 - **Choose your difficulty**: Easy, Medium, Hard, or Expert
-- Play as white against the computer (black)
+- **Play as White or Black**: Select your color - board flips automatically when playing Black
 - AI makes moves automatically after your turn
 - **Easy**: Perfect for beginners - completely random legal moves
 - **Medium**: Challenging - thinks 10 moves ahead, varies its play
 - **Hard**: Strong - thinks 15 moves ahead, plays near-optimal
 - **Expert**: Maximum strength - thinks 20 moves ahead, always best move
+- **Evaluation bar** (optional): Toggle with 📊 button to see position analysis
+- **Mate detection**: Shows M2, M3, etc. when checkmate is forced
 
 ### Move Trainer ✨
 - **Color-coded move quality**: Each move is evaluated by Stockfish 17.1
@@ -115,6 +122,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
   - White area (bottom) grows when White is better
   - Black area (top) grows when Black is better
   - Position evaluation stays consistent regardless of whose turn it is
+  - **Mate-in-X display**: Shows M2 (green) when you can mate, M3 (red) when being mated
 - Toggle hints on/off with the "Hints On" button
 
 ## Technology Stack
@@ -163,6 +171,8 @@ npm start
 - [x] Improve AI with actual Stockfish moves ✅
 - [x] Add adjustable engine difficulty levels ✅
 - [x] Legal move enforcement (king safety) ✅
+- [x] Play as Black option with board flip ✅
+- [x] Mate-in-X detection on evaluation bar ✅
 - [ ] Add Opening Trainer mode with repertoire system
 - [ ] Pawn promotion choice UI (Q/R/B/N)
 - [ ] User authentication and saved games per user

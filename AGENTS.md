@@ -149,6 +149,9 @@ info depth 15 multipv 1 score cp 38 pv e2e4 e7e5
 - `stockfishReady: boolean` - Engine status
 - `openingInfo: any` - Data from Lichess API
 - `kingMoved, rookMoved` - Castling rights tracking
+- `playerColor: 'white' | 'black'` - Human player's color in AI mode
+- `showEvalBar: boolean` - Whether to show the evaluation bar
+- `mateInMoves: number | null` - Detected mate-in-X (null if no mate)
 
 **Key Functions:**
 
@@ -168,9 +171,18 @@ handleSquareClick(row: number, col: number): void
 // Execute a move and update game state
 movePiece(fromRow, fromCol, toRow, toCol, castleType?): void
 
-// AI move generation (currently random)
+// AI move generation
 getStockfishMove(): void
 makeRandomMove(): void
+
+// Board flipping for play as Black
+getDisplayBoard(): Board  // Returns flipped board when playing Black
+
+// Convert display coordinates to internal coordinates
+convertDisplayCoordinates(displayRow: number, displayCol: number): [number, number]
+
+// Check if a square is under attack by opponent
+isSquareUnderAttack(boardState: Board, row: number, col: number, attackingColor: 'white' | 'black'): boolean
 ```
 
 **Chess Piece Representation:**
@@ -210,9 +222,12 @@ makeRandomMove(): void
      - Medium: Depth 10, weighted selection (60%/25%/15%)
      - Hard: Depth 15, weighted selection (80%/15%/5%)
      - Expert: Depth 20, always best move
+   - **Play as White or Black**: Choose your color before starting
+   - **Board Flip**: Board automatically flips when playing as Black
    - **AI Thinking Indicator**: Shows when AI is calculating
    - **Move Validation**: AI only makes legal moves
    - **Difficulty Selector**: Dropdown in AI mode
+   - **Evaluation Bar Toggle**: Show/hide position evaluation
 
 4. **Move Trainer Features** ✨
    - **Stockfish 17.1 Integration**: WebWorker-based engine running at depth 15
@@ -231,6 +246,7 @@ makeRandomMove(): void
      - Positive values = White advantage (white area grows from bottom)
      - Negative values = Black advantage (black area grows from top)
      - Values stay consistent regardless of whose turn it is
+     - **Mate-in-X Display**: Shows "M2", "M3", etc. when checkmate is detected
 
 5. **UI Features**
    - Visual piece selection (blue ring)
@@ -399,6 +415,71 @@ setCurrentEvaluation(whitePersp);
 **What Happened**: Changing return type from `number[][]` to `Array<Array<number | string>>` exposed all the places where we assumed moves only contained numbers.
 
 **Key Lesson**: TypeScript's strict typing caught potential runtime errors at compile time. The extra effort to fix type errors prevented hard-to-debug runtime bugs.
+
+### 6. AI Castling While in Check (October 2025)
+
+**Bug**: AI (playing as Black) could castle while its king was in check.
+
+**Root Cause**: Castling validation only checked if the king would pass through or land in check, but not if the king was *currently* in check.
+
+**Solution**: Added `isSquareUnderAttack()` helper function and used it to validate all three castling conditions:
+
+```typescript
+// Helper function to check if a square is under attack
+function isSquareUnderAttack(boardState: Board, row: number, col: number, attackingColor: 'white' | 'black'): boolean {
+  // Check all opponent pieces for attacks on the square
+}
+
+// In castling validation, check ALL three conditions:
+const kingCol = 4;
+const opponentColor = isWhite ? 'black' : 'white';
+
+// 1. King not currently in check
+if (isSquareUnderAttack(boardState, row, kingCol, opponentColor)) {
+  canCastle = false;
+}
+// 2. King doesn't pass through check
+// 3. King doesn't end up in check
+```
+
+**Key Lesson**: Castling has three distinct requirements - the king cannot be in check, pass through check, OR land in check. All three must be validated.
+
+### 7. Missing Check Notation in Move History (October 2025)
+
+**Bug**: When a move put the opponent's king in check, the move history showed "Qe1" instead of "Qe1+".
+
+**Root Cause**: The `uciToAlgebraicWithBoard()` function checked for check before simulating special moves (castling, en passant), so the test board was in the wrong state.
+
+**Solution**: Properly simulate all special moves before checking if the opponent is in check:
+
+```typescript
+// Simulate the move on test board
+testBoard[toRow][toCol] = testBoard[fromRow][fromCol];
+testBoard[fromRow][fromCol] = '';
+
+// Handle castling - move the rook too!
+if (isCastlingMove) {
+  if (toCol === 6) { // Kingside
+    testBoard[toRow][5] = testBoard[toRow][7];
+    testBoard[toRow][7] = '';
+  } else { // Queenside
+    testBoard[toRow][3] = testBoard[toRow][0];
+    testBoard[toRow][0] = '';
+  }
+}
+
+// Handle en passant - remove captured pawn
+if (isEnPassant) {
+  testBoard[fromRow][toCol] = '';
+}
+
+// NOW check if opponent is in check
+if (isKingInCheck(testBoard, opponentColor)) {
+  notation += '+';
+}
+```
+
+**Key Lesson**: When checking game state after a move (like whether opponent is in check), you must fully simulate the move including all side effects (rook movement in castling, captured pawn in en passant).
 
 ## Planned Features (Continued)
 

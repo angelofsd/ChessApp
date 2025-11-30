@@ -49,17 +49,21 @@ export default function ChessApp() {
   const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard' | 'expert'>('medium');
   const [aiThinking, setAiThinking] = useState(false);
   const [stockfishReady, setStockfishReady] = useState(false);
+  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white'); // Player's chosen color in AI mode
   
   // Initialize refs with current state to avoid closure issues in setTimeout callbacks
   const gameModeRef = useRef<'human' | 'ai' | 'trainer'>(gameMode);
   const currentPlayerRef = useRef<'white' | 'black'>(currentPlayer);
   const boardRef = useRef<Board>(board);
+  const playerColorRef = useRef<'white' | 'black'>(playerColor);
   const [moveEvaluations, setMoveEvaluations] = useState<Record<string, number>>({});
   const [bestMoveEval, setBestMoveEval] = useState<number | null>(null); // Store the absolute best move evaluation
   const [currentEvaluation, setCurrentEvaluation] = useState<number>(0); // Current position evaluation in centipawns
+  const [mateInMoves, setMateInMoves] = useState<number | null>(null); // Mate in X moves (positive = player mating, negative = being mated)
   const [topMoves, setTopMoves] = useState<Array<{move: string, eval: number}>>([]);
   const [showMoveHints, setShowMoveHints] = useState(true);
   const [showTopMoves, setShowTopMoves] = useState(true);
+  const [showEvalBar, setShowEvalBar] = useState(false); // Toggle for evaluation bar in AI mode
   const [openingInfo, setOpeningInfo] = useState<any>(null);
   const [loadingOpening, setLoadingOpening] = useState(false);
   const [kingMoved, setKingMoved] = useState({ white: false, black: false });
@@ -80,6 +84,9 @@ export default function ChessApp() {
   // Convert UCI notation (e2e4) to algebraic notation (e4, Nf3, etc.)
   // Convert UCI move to algebraic notation with board state
   const uciToAlgebraicWithBoard = (uciMove: string, boardState: Board, nextPlayer: 'white' | 'black'): string => {
+    if (!uciMove || uciMove.length < 4) {
+      return uciMove; // Return as-is if invalid
+    }
     const fromSquare = uciMove.substring(0, 2);
     const toSquare = uciMove.substring(2, 4);
     const promotion = uciMove.length > 4 ? uciMove[4].toUpperCase() : '';
@@ -109,7 +116,31 @@ export default function ChessApp() {
     if (piece.toUpperCase() === 'K') {
       const colDiff = toCol.charCodeAt(0) - fromCol.charCodeAt(0);
       if (Math.abs(colDiff) === 2) {
-        return colDiff > 0 ? 'O-O' : 'O-O-O';
+        // Simulate castling to check for check/checkmate
+        const testBoard = boardState.map(r => [...r]);
+        testBoard[toRowIndex][toColIndex] = piece;
+        testBoard[rowIndex][colIndex] = '';
+        // Move the rook too
+        if (colDiff > 0) {
+          // Kingside
+          testBoard[toRowIndex][5] = testBoard[toRowIndex][7];
+          testBoard[toRowIndex][7] = '';
+        } else {
+          // Queenside
+          testBoard[toRowIndex][3] = testBoard[toRowIndex][0];
+          testBoard[toRowIndex][0] = '';
+        }
+        
+        const opponentInCheck = isKingInCheck(testBoard, nextPlayer);
+        const opponentIsCheckmated = opponentInCheck && isCheckmate(testBoard, nextPlayer);
+        
+        let notation = colDiff > 0 ? 'O-O' : 'O-O-O';
+        if (opponentIsCheckmated) {
+          notation += '#';
+        } else if (opponentInCheck) {
+          notation += '+';
+        }
+        return notation;
       }
     }
     
@@ -172,19 +203,52 @@ export default function ChessApp() {
   // Parse Stockfish evaluation output
   const parseStockfishEval = (message: string) => {
     // Example: info depth 20 multipv 1 score cp 25 pv e2e4 e7e5
+    // Or: info depth 20 multipv 1 score mate 3 pv e2e4 e7e5
     const multipvMatch = message.match(/multipv (\d+)/);
-    const scoreMatch = message.match(/score cp (-?\d+)/);
+    const scoreCpMatch = message.match(/score cp (-?\d+)/);
+    const scoreMateMatch = message.match(/score mate (-?\d+)/);
     // Changed regex: Use word boundary \b to ensure we match after "pv " not after "multipv "
     const pvMatch = message.match(/\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
     
-    if (multipvMatch && scoreMatch && pvMatch) {
+    // Determine side-to-move from the FEN being analyzed
+    const fenParts = currentAnalysisFEN.current.split(' ');
+    const sideToMove = fenParts[1] === 'w' ? 'white' : 'black';
+    
+    // Handle mate scores
+    if (multipvMatch && scoreMateMatch && pvMatch) {
       const pvIndex = parseInt(multipvMatch[1]);
-      const centipawns = parseInt(scoreMatch[1]);
+      const mateIn = parseInt(scoreMateMatch[1]);
       const move = pvMatch[1];
       
-      // Determine side-to-move from the FEN being analyzed (more reliable than currentPlayer state)
-      const fenParts = currentAnalysisFEN.current.split(' ');
-      const sideToMove = fenParts[1] === 'w' ? 'white' : 'black';
+      console.log(`🔍 MATE DETECTED: multipv=${pvIndex}, mate in ${mateIn}, move=${move}, sideToMove=${sideToMove}`);
+      
+      // Convert to White's perspective
+      // Positive mateIn = side-to-move is mating, negative = side-to-move is getting mated
+      const whitePerspMate = sideToMove === 'white' ? mateIn : -mateIn;
+      
+      if (pvIndex === 1) {
+        setMateInMoves(whitePerspMate);
+        // Set a very high/low evaluation for the bar
+        const extremeEval = whitePerspMate > 0 ? 10000 : -10000;
+        setCurrentEvaluation(extremeEval);
+        setBestMoveEval(extremeEval);
+      }
+      
+      // Update top moves
+      setTopMoves(prev => {
+        const updated = [...prev];
+        updated[pvIndex - 1] = { move, eval: whitePerspMate > 0 ? 10000 : -10000 };
+        return updated.filter(m => m !== undefined);
+      });
+      
+      return;
+    }
+    
+    // Handle centipawn scores
+    if (multipvMatch && scoreCpMatch && pvMatch) {
+      const pvIndex = parseInt(multipvMatch[1]);
+      const centipawns = parseInt(scoreCpMatch[1]);
+      const move = pvMatch[1];
       
       console.log(`🔍 RAW STOCKFISH: multipv=${pvIndex}, score cp=${centipawns}, move=${move}, sideToMove=${sideToMove} (from FEN)`);
       
@@ -201,6 +265,7 @@ export default function ChessApp() {
         console.log(`🔍 DEBUG: Setting evaluation - Raw centipawns: ${centipawns}, whitePersp: ${whitePersp}, currentPlayer: ${currentPlayer}`);
         setBestMoveEval(whitePersp); // Store White's perspective
         setCurrentEvaluation(whitePersp); // Store White's perspective
+        setMateInMoves(null); // Clear any mate detection
         console.log(`🏆 Best move in position: ${move} with eval ${whitePersp} cp (White perspective) | Current player: ${currentPlayer}`);
       }
       
@@ -365,10 +430,14 @@ export default function ChessApp() {
                 const centipawns = parseInt(scoreMatch[1]);
                 const move = pvMatch[1];
                 
-                // Add to candidates (convert to Black's perspective since AI plays black)
-                const evalForBlack = -centipawns; // Flip for Black's benefit
-                aiMoveCandidates.current[pvIndex - 1] = { move, eval: evalForBlack };
-                console.log(`🤖 AI candidate ${pvIndex}: ${move} (${evalForBlack} cp for Black)`);
+                // Determine opponent color using REF
+                const opponentColor = playerColorRef.current === 'white' ? 'black' : 'white';
+                
+                // Add to candidates (convert to opponent's perspective)
+                // Stockfish reports from side-to-move perspective, so we flip if opponent is white
+                const evalForOpponent = opponentColor === 'black' ? -centipawns : centipawns;
+                aiMoveCandidates.current[pvIndex - 1] = { move, eval: evalForOpponent };
+                console.log(`🤖 AI candidate ${pvIndex}: ${move} (${evalForOpponent} cp for ${opponentColor})`);
               }
             }
             
@@ -434,44 +503,48 @@ export default function ChessApp() {
     };
   }, []);
 
-  // Trigger AI move when it's Black's turn in AI mode
+  // Trigger AI move when it's the opponent's turn in AI mode
   // Use a ref to track if we've already queued an AI move for this position
   const aiMoveQueuedRef = useRef(false);
   
   useEffect(() => {
-    console.log(`🔍 AI useEffect triggered - gameMode: ${gameMode}, currentPlayer: ${currentPlayer}, stockfishReady: ${stockfishReady}, aiThinking: ${aiThinking}, waitingForAIMove: ${waitingForAIMove.current}, aiMoveQueued: ${aiMoveQueuedRef.current}`);
+    console.log(`🔍 AI useEffect triggered - gameMode: ${gameMode}, currentPlayer: ${currentPlayer}, playerColor: ${playerColor}, stockfishReady: ${stockfishReady}, aiThinking: ${aiThinking}, waitingForAIMove: ${waitingForAIMove.current}, aiMoveQueued: ${aiMoveQueuedRef.current}`);
     
     // Keep refs in sync with state
     gameModeRef.current = gameMode;
     currentPlayerRef.current = currentPlayer;
     boardRef.current = board;
+    playerColorRef.current = playerColor;
+    
+    // Determine whose turn it is for the AI
+    const opponentColor = playerColor === 'white' ? 'black' : 'white';
     
     // Only trigger AI move when all conditions are met AND flag is not set
     if (gameMode === 'ai' && 
-        currentPlayer === 'black' && 
+        currentPlayer === opponentColor && 
         stockfishReady && 
         !aiThinking && 
         !waitingForAIMove.current && 
         !aiMoveQueuedRef.current && 
         gameResult === null) {
       
-      console.log('✅ Triggering AI move via useEffect (currentPlayer changed to black)');
+      console.log(`✅ Triggering AI move via useEffect (currentPlayer changed to ${opponentColor}, opponent turn)`);
       aiMoveQueuedRef.current = true;
       setTimeout(() => {
         getStockfishMove();
       }, 300);
     }
-    // CRITICAL: Reset the flag when turn switches back to White
-    // This must happen to allow AI to move again on the NEXT Black turn
-    else if (currentPlayer === 'white') {
+    // CRITICAL: Reset the flag when turn switches back to player's turn
+    // This must happen to allow AI to move again on the NEXT opponent turn
+    else if (currentPlayer === playerColor) {
       if (aiMoveQueuedRef.current || waitingForAIMove.current || aiThinking) {
-        console.log('🔄 Turn switched to White - clearing ALL AI flags');
+        console.log(`🔄 Turn switched to player (${playerColor}) - clearing ALL AI flags`);
         aiMoveQueuedRef.current = false;
         waitingForAIMove.current = false;
         setAiThinking(false);
       }
     }
-  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult]);
+  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult, playerColor]);
 
   // Evaluate all legal moves in trainer or AI mode (only when no piece is selected)
   useEffect(() => {
@@ -481,11 +554,12 @@ export default function ChessApp() {
       return;
     }
     
-    // DISABLE evaluation in AI mode - only use for trainer mode
-    if (gameMode === 'trainer' && stockfishReady && !selectedSquare) {
+    // Evaluate position in trainer mode, or AI mode when eval bar is enabled
+    const shouldEvaluate = gameMode === 'trainer' || (gameMode === 'ai' && showEvalBar);
+    if (shouldEvaluate && stockfishReady && !selectedSquare) {
       evaluateAllMoves();
     }
-  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking]);
+  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking, showEvalBar]);
 
   // When piece is selected, use evaluations from general analysis
   // (Don't do piece-specific analysis since getValidMovesForBoard doesn't check for check/pins)
@@ -720,9 +794,12 @@ export default function ChessApp() {
       return;
     }
     
-    // CRITICAL: Verify it's actually Black's turn before requesting AI move
-    if (currentPlayerRef.current !== 'black') {
-      console.warn(`⚠️ Skipping AI move - currentPlayerRef is ${currentPlayerRef.current}, expected black`);
+    // Determine opponent color using REF for consistency
+    const opponentColor = playerColorRef.current === 'white' ? 'black' : 'white';
+    
+    // CRITICAL: Verify it's actually the opponent's turn before requesting AI move
+    if (currentPlayerRef.current !== opponentColor) {
+      console.warn(`⚠️ Skipping AI move - currentPlayerRef is ${currentPlayerRef.current}, expected ${opponentColor}`);
       return;
     }
     
@@ -768,7 +845,8 @@ export default function ChessApp() {
 
   // Execute AI move from UCI notation
   const executeAIMove = (uciMove: string) => {
-    console.log(`🤖 AI executing move: ${uciMove} (currentPlayer: ${currentPlayer}, gameMode: ${gameMode}, gameModeRef: ${gameModeRef.current}, currentPlayerRef: ${currentPlayerRef.current})`);
+    const opponentColor = playerColorRef.current === 'white' ? 'black' : 'white';
+    console.log(`🤖 AI executing move: ${uciMove} (currentPlayer: ${currentPlayer}, gameMode: ${gameMode}, gameModeRef: ${gameModeRef.current}, currentPlayerRef: ${currentPlayerRef.current}, playerColorRef: ${playerColorRef.current})`);
     
     // CRITICAL: Verify we're still in AI mode using REF (user might have switched modes during setTimeout)
     if (gameModeRef.current !== 'ai') {
@@ -779,9 +857,9 @@ export default function ChessApp() {
       return;
     }
     
-    // CRITICAL: Double-check it's actually Black's turn using REF (not stale state from closure)
-    if (currentPlayerRef.current !== 'black') {
-      console.error(`❌ ABORT: AI tried to move when currentPlayerRef is ${currentPlayerRef.current}, not black! (state closure had: ${currentPlayer})`);
+    // CRITICAL: Double-check it's actually the opponent's turn using REF (not stale state from closure)
+    if (currentPlayerRef.current !== opponentColor) {
+      console.error(`❌ ABORT: AI tried to move when currentPlayerRef is ${currentPlayerRef.current}, expected ${opponentColor}! (state closure had: ${currentPlayer})`);
       setAiThinking(false);
       waitingForAIMove.current = false;
       aiMoveQueuedRef.current = false;
@@ -801,10 +879,13 @@ export default function ChessApp() {
     // CRITICAL: Use boardRef to get the CURRENT board state (avoid stale closure)
     const currentBoard = boardRef.current;
     
-    // GUARD: Verify the piece at source square is black
+    // GUARD: Verify the piece at source square matches opponent color
     const piece = currentBoard[fromRow][fromCol];
-    if (!piece || piece !== piece.toLowerCase()) {
-      console.error(`❌ Invalid AI move ${uciMove}: No black piece at source square. Piece: ${piece || 'empty'}, currentPlayerRef: ${currentPlayerRef.current}`);
+    const expectedIsLowercase = opponentColor === 'black';
+    const isCorrectColor = expectedIsLowercase ? piece === piece.toLowerCase() : piece === piece.toUpperCase();
+    
+    if (!piece || !isCorrectColor) {
+      console.error(`❌ Invalid AI move ${uciMove}: No ${opponentColor} piece at source square. Piece: ${piece || 'empty'}, currentPlayerRef: ${currentPlayerRef.current}`);
       console.error(`❌ Board state at [${fromRow},${fromCol}]:`, currentBoard[fromRow]);
       setAiThinking(false);
       waitingForAIMove.current = false;
@@ -891,14 +972,22 @@ export default function ChessApp() {
   };
 
   const makeRandomMove = () => {
+    // Determine which color AI is playing
+    const aiColor = playerColorRef.current === 'white' ? 'black' : 'white';
+    const nextPlayer = aiColor === 'white' ? 'black' : 'white';
+    
     setBoard(currentBoard => {
       const allMoves: { from: [number, number]; to: Array<number | string> }[] = [];
       
-      // Collect all LEGAL moves for black pieces (filter out moves that leave king in check)
+      // Collect all LEGAL moves for AI's pieces (filter out moves that leave king in check)
       for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 8; col++) {
           const piece = currentBoard[row][col];
-          if (piece && piece === piece.toLowerCase() && piece !== '') {
+          const isAIPiece = aiColor === 'white' 
+            ? piece && piece === piece.toUpperCase() && piece !== ''
+            : piece && piece === piece.toLowerCase() && piece !== '';
+          
+          if (isAIPiece) {
             // Get pseudo-legal moves
             const pseudoLegalMoves = getValidMovesForBoard(currentBoard, row, col);
             
@@ -937,8 +1026,8 @@ export default function ChessApp() {
                 testBoard[row][col] = '';
               }
               
-              // Only add move if it doesn't leave black king in check
-              if (!isKingInCheck(testBoard, 'black')) {
+              // Only add move if it doesn't leave AI's king in check
+              if (!isKingInCheck(testBoard, aiColor)) {
                 allMoves.push({ from: [row, col], to: move });
               }
             });
@@ -987,7 +1076,8 @@ export default function ChessApp() {
           return newHistory;
         });
 
-        setCurrentPlayer('white');
+        setCurrentPlayer(nextPlayer);
+        currentPlayerRef.current = nextPlayer;
         return newBoard;
       }
 
@@ -1110,27 +1200,59 @@ export default function ChessApp() {
         }
       }
 
-      // Castling (basic checks similar to original)
+      // Castling - must check:
+      // 1. King and rook haven't moved
+      // 2. Squares between are empty
+      // 3. King is not in check
+      // 4. King doesn't pass through check
+      // 5. King doesn't end up in check
+      const kingColor = isWhite ? 'white' : 'black';
+      const opponentColor = isWhite ? 'black' : 'white';
+      const kingRow = isWhite ? 7 : 0;
+      
+      // Only allow castling if king is NOT currently in check
+      const kingInCheck = isSquareUnderAttack(boardState, kingRow, 4, opponentColor);
+      
       if (isWhite) {
-        if (!kingMoved.white && !rookMoved.whiteKingSide) {
+        if (!kingMoved.white && !rookMoved.whiteKingSide && !kingInCheck) {
           if (boardState[7][5] === '' && boardState[7][6] === '' && boardState[7][7] === 'R') {
-            moves.push([7, 6, 'castle-kingside']);
+            // Check that king doesn't pass through or end up in check
+            const passesThroughCheck = isSquareUnderAttack(boardState, 7, 5, opponentColor);
+            const endsInCheck = isSquareUnderAttack(boardState, 7, 6, opponentColor);
+            if (!passesThroughCheck && !endsInCheck) {
+              moves.push([7, 6, 'castle-kingside']);
+            }
           }
         }
-        if (!kingMoved.white && !rookMoved.whiteQueenSide) {
+        if (!kingMoved.white && !rookMoved.whiteQueenSide && !kingInCheck) {
           if (boardState[7][1] === '' && boardState[7][2] === '' && boardState[7][3] === '' && boardState[7][0] === 'R') {
-            moves.push([7, 2, 'castle-queenside']);
+            // Check that king doesn't pass through or end up in check
+            const passesThroughCheck = isSquareUnderAttack(boardState, 7, 3, opponentColor);
+            const endsInCheck = isSquareUnderAttack(boardState, 7, 2, opponentColor);
+            if (!passesThroughCheck && !endsInCheck) {
+              moves.push([7, 2, 'castle-queenside']);
+            }
           }
         }
       } else {
-        if (!kingMoved.black && !rookMoved.blackKingSide) {
+        if (!kingMoved.black && !rookMoved.blackKingSide && !kingInCheck) {
           if (boardState[0][5] === '' && boardState[0][6] === '' && boardState[0][7] === 'r') {
-            moves.push([0, 6, 'castle-kingside']);
+            // Check that king doesn't pass through or end up in check
+            const passesThroughCheck = isSquareUnderAttack(boardState, 0, 5, opponentColor);
+            const endsInCheck = isSquareUnderAttack(boardState, 0, 6, opponentColor);
+            if (!passesThroughCheck && !endsInCheck) {
+              moves.push([0, 6, 'castle-kingside']);
+            }
           }
         }
-        if (!kingMoved.black && !rookMoved.blackQueenSide) {
+        if (!kingMoved.black && !rookMoved.blackQueenSide && !kingInCheck) {
           if (boardState[0][1] === '' && boardState[0][2] === '' && boardState[0][3] === '' && boardState[0][0] === 'r') {
-            moves.push([0, 2, 'castle-queenside']);
+            // Check that king doesn't pass through or end up in check
+            const passesThroughCheck = isSquareUnderAttack(boardState, 0, 3, opponentColor);
+            const endsInCheck = isSquareUnderAttack(boardState, 0, 2, opponentColor);
+            if (!passesThroughCheck && !endsInCheck) {
+              moves.push([0, 2, 'castle-queenside']);
+            }
           }
         }
       }
@@ -1420,30 +1542,39 @@ export default function ChessApp() {
     return 'ring-[6px] ring-red-400'; // Bad (200+ centipawns worse)
   };
 
-  const handleSquareClick = (row: number, col: number) => {
+  const handleSquareClick = (displayRow: number, displayCol: number) => {
+    // Convert display coordinates to board coordinates if player is Black
+    const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
+
     // Prevent moves if game is over
     if (gameResult !== null) {
       console.log('Game is over. Result:', gameResult);
       return;
     }
 
-    if (gameMode === 'ai' && currentPlayer === 'black') return;
+    // In AI mode, only allow moves when it's the player's turn
+    if (gameMode === 'ai' && currentPlayer !== playerColor) return;
     const piece = board[row][col];
 
-    if (selectedSquare && validMoves.some(move => move[0] === row && move[1] === col)) {
-      const move = validMoves.find(m => m[0] === row && m[1] === col)!;
-      const castleType = typeof (move as any)[2] === 'string' ? (move as any)[2] : undefined;
-      const isEnPassant = (move as any)[2] === 1; // 1 marks en passant
-      movePiece(selectedSquare[0], selectedSquare[1], row, col, castleType, isEnPassant);
-      setSelectedSquare(null);
-      setValidMoves([]);
-      analyzingSelectedPiece.current = false; // Reset flag
-      return;
+    if (selectedSquare) {
+      // Convert selected square back to board coordinates for comparison
+      const [selectedRow, selectedCol] = selectedSquare;
+      if (validMoves.some(move => move[0] === row && move[1] === col)) {
+        const move = validMoves.find(m => m[0] === row && m[1] === col)!;
+        const castleType = typeof (move as any)[2] === 'string' ? (move as any)[2] : undefined;
+        const isEnPassant = (move as any)[2] === 1; // 1 marks en passant
+        movePiece(selectedRow, selectedCol, row, col, castleType, isEnPassant);
+        setSelectedSquare(null);
+        setValidMoves([]);
+        analyzingSelectedPiece.current = false; // Reset flag
+        return;
+      }
     }
 
     if (piece && isCurrentPlayerPiece(piece)) {
       const moves = getValidMoves(row, col);
       console.log(`🔎 Selected ${piece} at [${row},${col}], found ${moves.length} legal moves:`, moves);
+      // Store board coordinates, not display coordinates
       setSelectedSquare([row, col]);
       setValidMoves(moves);
     } else {
@@ -1583,6 +1714,28 @@ export default function ChessApp() {
     setEnPassantTarget(null);
     setKingMoved({ white: false, black: false });
     setRookMoved({ whiteKingSide: false, whiteQueenSide: false, blackKingSide: false, blackQueenSide: false });
+    setMateInMoves(null); // Reset mate detection
+    setCurrentEvaluation(0); // Reset evaluation
+    // Sync refs immediately
+    currentPlayerRef.current = 'white';
+    boardRef.current = INITIAL_BOARD;
+  };
+
+  // Get display board - flip if player is Black
+  const getDisplayBoard = (): Board => {
+    if (gameMode === 'ai' && playerColor === 'black') {
+      // Flip the board for Black's perspective
+      return board.map(row => [...row]).reverse().map(row => row.reverse());
+    }
+    return board;
+  };
+
+  // Convert display coordinates back to board coordinates if player is Black
+  const convertDisplayCoordinates = (displayRow: number, displayCol: number): [number, number] => {
+    if (gameMode === 'ai' && playerColor === 'black') {
+      return [7 - displayRow, 7 - displayCol];
+    }
+    return [displayRow, displayCol];
   };
 
   const undoMove = () => {
@@ -1609,8 +1762,8 @@ export default function ChessApp() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
             <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 shadow-2xl">
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex gap-2">
+              <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                <div className="flex gap-1">
                   <button
                     onClick={() => {
                       // Cancel any pending AI moves when switching to human mode
@@ -1619,7 +1772,7 @@ export default function ChessApp() {
                       aiMoveQueuedRef.current = false;
                       setGameMode('human');
                     }}
-                    className={`px-4 py-2 rounded-lg font-medium transition ${
+                    className={`px-3 py-1.5 rounded-lg font-medium transition text-sm ${
                       gameMode === 'human'
                         ? 'bg-blue-500 text-white'
                         : 'bg-white/20 text-white hover:bg-white/30'
@@ -1634,13 +1787,13 @@ export default function ChessApp() {
                         resetGame();
                       }
                     }}
-                    className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+                    className={`px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1 text-sm ${
                       gameMode === 'ai'
                         ? 'bg-blue-500 text-white'
                         : 'bg-white/20 text-white hover:bg-white/30'
                     }`}
                   >
-                    <Cpu size={16} />
+                    <Cpu size={14} />
                     vs AI
                   </button>
                   <button
@@ -1648,106 +1801,191 @@ export default function ChessApp() {
                       setGameMode('trainer');
                       resetGame();
                     }}
-                    className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${
+                    className={`px-3 py-1.5 rounded-lg font-medium transition flex items-center gap-1 text-sm ${
                       gameMode === 'trainer'
                         ? 'bg-green-500 text-white'
                         : 'bg-white/20 text-white hover:bg-white/30'
                     }`}
                   >
-                    <Info size={16} />
-                    Move Trainer
+                    <Info size={14} />
+                    Trainer
                   </button>
                 </div>
-                {/* AI Difficulty Selector */}
+                {/* AI Difficulty & Color Selector */}
                 {gameMode === 'ai' && (
                   <div className="flex items-center gap-2">
-                    <span className="text-white text-sm font-medium">Difficulty:</span>
+                    <span className="text-white text-xs">Play:</span>
+                    <button
+                      onClick={() => {
+                        setPlayerColor('white');
+                        playerColorRef.current = 'white';
+                        // Clear AI flags before reset
+                        aiMoveQueuedRef.current = false;
+                        waitingForAIMove.current = false;
+                        setAiThinking(false);
+                        resetGame();
+                      }}
+                      className={`px-2 py-1 rounded font-medium transition text-xs ${
+                        playerColor === 'white'
+                          ? 'bg-gray-100 text-gray-900'
+                          : 'bg-white/20 text-white hover:bg-white/30'
+                      }`}
+                    >
+                      ⚪
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPlayerColor('black');
+                        playerColorRef.current = 'black';
+                        // Clear AI flags before reset
+                        aiMoveQueuedRef.current = false;
+                        waitingForAIMove.current = false;
+                        setAiThinking(false);
+                        resetGame();
+                        // Trigger AI move after a short delay to let state settle
+                        setTimeout(() => {
+                          if (stockfishReady) {
+                            console.log('🎮 Player chose Black - triggering AI first move as White');
+                            aiMoveQueuedRef.current = true;
+                            getStockfishMove();
+                          }
+                        }, 500);
+                      }}
+                      className={`px-2 py-1 rounded font-medium transition text-xs ${
+                        playerColor === 'black'
+                          ? 'bg-gray-700 text-white'
+                          : 'bg-white/20 text-white hover:bg-white/30'
+                      }`}
+                    >
+                      ⚫
+                    </button>
                     <select
                       value={aiDifficulty}
                       onChange={(e) => setAiDifficulty(e.target.value as any)}
-                      className="px-3 py-1.5 rounded-lg bg-white/20 text-white border border-white/30 text-sm font-medium hover:bg-white/30 transition cursor-pointer"
+                      className="px-2 py-1 rounded bg-white/20 text-white border border-white/30 text-xs font-medium hover:bg-white/30 transition cursor-pointer"
                     >
                       <option value="easy" className="bg-gray-800">Easy</option>
                       <option value="medium" className="bg-gray-800">Medium</option>
                       <option value="hard" className="bg-gray-800">Hard</option>
                       <option value="expert" className="bg-gray-800">Expert</option>
                     </select>
+                    <button
+                      onClick={() => setShowEvalBar(!showEvalBar)}
+                      className={`px-2 py-1 rounded font-medium transition text-xs ${
+                        showEvalBar
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-white/20 text-white hover:bg-white/30'
+                      }`}
+                      title="Toggle evaluation bar"
+                    >
+                      📊
+                    </button>
                   </div>
                 )}
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   {gameMode === 'trainer' && (
                     <>
                       <button
                         onClick={() => setShowMoveHints(!showMoveHints)}
-                        className={`px-3 py-2 rounded-lg font-medium transition text-sm ${
+                        className={`px-2 py-1.5 rounded font-medium transition text-xs ${
                           showMoveHints
                             ? 'bg-green-600 text-white'
                             : 'bg-white/20 text-white hover:bg-white/30'
                         }`}
                         title="Toggle move hints"
                       >
-                        {showMoveHints ? '👁️ Hints On' : '👁️ Hints Off'}
+                        {showMoveHints ? '👁️ On' : '👁️ Off'}
                       </button>
                       <button
                         onClick={() => setShowTopMoves(!showTopMoves)}
-                        className={`px-3 py-2 rounded-lg font-medium transition text-sm ${
+                        className={`px-2 py-1.5 rounded font-medium transition text-xs ${
                           showTopMoves
                             ? 'bg-purple-600 text-white'
                             : 'bg-white/20 text-white hover:bg-white/30'
                         }`}
                         title="Toggle top moves display"
                       >
-                        {showTopMoves ? '📊 Top 3' : '📊 Top 3'}
+                        📊
                       </button>
                     </>
                   )}
                   <button
                     onClick={undoMove}
-                    className="p-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition"
+                    className="p-1.5 bg-white/20 text-white rounded hover:bg-white/30 transition"
                     title="Undo"
                   >
-                    <ChevronLeft size={20} />
+                    <ChevronLeft size={18} />
                   </button>
                   <button
                     onClick={resetGame}
-                    className="p-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition"
+                    className="p-1.5 bg-white/20 text-white rounded hover:bg-white/30 transition"
                     title="Reset"
                   >
-                    <RotateCcw size={20} />
+                    <RotateCcw size={18} />
                   </button>
                 </div>
               </div>
 
               {/* Chessboard with Evaluation Bar */}
               <div className="flex gap-3">
-                {/* Evaluation Bar - Show in AI and Trainer modes */}
-                {(gameMode === 'ai' || gameMode === 'trainer') && (
+                {/* Evaluation Bar - Show in Trainer mode always, AI mode when toggled */}
+                {(gameMode === 'trainer' || (gameMode === 'ai' && showEvalBar)) && (
                   <div className="flex flex-col w-12">
                     <div className="flex-1 bg-gradient-to-b from-gray-800 to-gray-700 rounded-lg overflow-hidden relative shadow-lg">
-                      {/* Black advantage area (top) - grows when evaluation is negative */}
-                      <div 
-                        className="absolute top-0 left-0 right-0 bg-gradient-to-b from-gray-900 to-gray-800 transition-all duration-300"
-                        style={{ 
-                          height: `${Math.max(0, Math.min(100, 50 - (currentEvaluation / 10)))}%` 
-                        }}
-                      />
-                      {/* White advantage area (bottom) - grows when evaluation is positive */}
-                      <div 
-                        className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-100 to-white transition-all duration-300"
-                        style={{ 
-                          height: `${Math.max(0, Math.min(100, 50 + (currentEvaluation / 10)))}%` 
-                        }}
-                      />
-                      {/* Center line */}
-                      <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-gray-500 transform -translate-y-1/2" />
-                      {/* Evaluation number */}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className={`text-xs font-bold px-1 py-0.5 rounded ${
-                          currentEvaluation > 0 ? 'bg-white/90 text-gray-900' : 'bg-gray-900/90 text-white'
-                        }`}>
-                          {currentEvaluation > 0 ? '+' : ''}{(currentEvaluation / 100).toFixed(1)}
-                        </div>
-                      </div>
+                      {/* Adjust eval display based on player color in AI mode */}
+                      {(() => {
+                        // In AI mode when playing as Black, flip the display
+                        const displayEval = (gameMode === 'ai' && playerColor === 'black') 
+                          ? -currentEvaluation 
+                          : currentEvaluation;
+                        
+                        // Check for mate - also flip for Black perspective
+                        const displayMate = mateInMoves !== null
+                          ? ((gameMode === 'ai' && playerColor === 'black') ? -mateInMoves : mateInMoves)
+                          : null;
+                        
+                        // For mate positions, show full bar advantage
+                        const barEval = displayMate !== null 
+                          ? (displayMate > 0 ? 1000 : -1000) 
+                          : displayEval;
+                        
+                        return (
+                          <>
+                            {/* Opponent advantage area (top) - grows when evaluation is negative */}
+                            <div 
+                              className="absolute top-0 left-0 right-0 bg-gradient-to-b from-gray-900 to-gray-800 transition-all duration-300"
+                              style={{ 
+                                height: `${Math.max(0, Math.min(100, 50 - (barEval / 10)))}%` 
+                              }}
+                            />
+                            {/* Player advantage area (bottom) - grows when evaluation is positive */}
+                            <div 
+                              className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-100 to-white transition-all duration-300"
+                              style={{ 
+                                height: `${Math.max(0, Math.min(100, 50 + (barEval / 10)))}%` 
+                              }}
+                            />
+                            {/* Center line */}
+                            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-gray-500 transform -translate-y-1/2" />
+                            {/* Evaluation number or Mate indicator */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              {displayMate !== null ? (
+                                <div className={`text-xs font-bold px-1 py-0.5 rounded ${
+                                  displayMate > 0 ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                                }`}>
+                                  M{Math.abs(displayMate)}
+                                </div>
+                              ) : (
+                                <div className={`text-xs font-bold px-1 py-0.5 rounded ${
+                                  displayEval > 0 ? 'bg-white/90 text-gray-900' : 'bg-gray-900/90 text-white'
+                                }`}>
+                                  {displayEval > 0 ? '+' : ''}{(displayEval / 100).toFixed(1)}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -1755,12 +1993,15 @@ export default function ChessApp() {
                 {/* Chessboard */}
                 <div className="aspect-square bg-amber-100 rounded-lg shadow-inner flex-1">
                   <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
-                    {board.map((row, rowIndex) => (
-                      row.map((piece, colIndex) => {
-                        const isLight = (rowIndex + colIndex) % 2 === 0;
-                        const isSelected = selectedSquare?.[0] === rowIndex && selectedSquare?.[1] === colIndex;
-                        const isValidMove = validMoves.some(move => move[0] === rowIndex && move[1] === colIndex);
-                        const moveQuality = selectedSquare ? getMoveQualityColor(selectedSquare[0], selectedSquare[1], rowIndex, colIndex) : '';
+                    {getDisplayBoard().map((row, displayRowIndex) => (
+                      row.map((piece, displayColIndex) => {
+                        // Convert display coordinates back to board coordinates
+                        const [boardRowIndex, boardColIndex] = convertDisplayCoordinates(displayRowIndex, displayColIndex);
+                        
+                        const isLight = (displayRowIndex + displayColIndex) % 2 === 0;
+                        const isSelected = selectedSquare?.[0] === boardRowIndex && selectedSquare?.[1] === boardColIndex;
+                        const isValidMove = validMoves.some(move => move[0] === boardRowIndex && move[1] === boardColIndex);
+                        const moveQuality = selectedSquare ? getMoveQualityColor(selectedSquare[0], selectedSquare[1], boardRowIndex, boardColIndex) : '';
                         
                         // Check if this square has a king in check
                         const isKing = piece && piece.toLowerCase() === 'k';
@@ -1774,7 +2015,7 @@ export default function ChessApp() {
                         : 'ring-4 ring-inset ring-white';
 
                       return (
-                        <div key={`${rowIndex}-${colIndex}`} onClick={() => handleSquareClick(rowIndex, colIndex)} className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} hover:brightness-110`}>
+                        <div key={`${displayRowIndex}-${displayColIndex}`} onClick={() => handleSquareClick(displayRowIndex, displayColIndex)} className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} hover:brightness-110`}>
                           {piece && (
                             <img 
                               src={PIECE_IMAGES[piece]} 
@@ -1886,13 +2127,42 @@ export default function ChessApp() {
                         const toCol = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
                         
                         let movingPiece = boardState[fromRow][fromCol];
-                        // Handle promotion
-                        if (movingPiece.toUpperCase() === 'P' && promotion) {
-                          movingPiece = movingPiece === movingPiece.toUpperCase() ? promotion.toUpperCase() : promotion.toLowerCase();
-                        }
                         
-                        boardState[toRow][toCol] = movingPiece;
-                        boardState[fromRow][fromCol] = '';
+                        // Handle castling (king moves 2 squares)
+                        if (movingPiece.toLowerCase() === 'k' && Math.abs(toCol - fromCol) === 2) {
+                          boardState[toRow][toCol] = movingPiece;
+                          boardState[fromRow][fromCol] = '';
+                          // Move the rook
+                          if (toCol > fromCol) {
+                            // Kingside
+                            boardState[toRow][5] = boardState[toRow][7];
+                            boardState[toRow][7] = '';
+                          } else {
+                            // Queenside
+                            boardState[toRow][3] = boardState[toRow][0];
+                            boardState[toRow][0] = '';
+                          }
+                        }
+                        // Handle en passant (pawn captures diagonally to empty square)
+                        else if (movingPiece.toLowerCase() === 'p' && 
+                                 Math.abs(toCol - fromCol) === 1 && 
+                                 boardState[toRow][toCol] === '') {
+                          boardState[toRow][toCol] = movingPiece;
+                          boardState[fromRow][fromCol] = '';
+                          // Remove captured pawn
+                          boardState[fromRow][toCol] = '';
+                        }
+                        // Handle promotion
+                        else if (movingPiece.toUpperCase() === 'P' && promotion) {
+                          movingPiece = movingPiece === movingPiece.toUpperCase() ? promotion.toUpperCase() : promotion.toLowerCase();
+                          boardState[toRow][toCol] = movingPiece;
+                          boardState[fromRow][fromCol] = '';
+                        }
+                        // Normal move
+                        else {
+                          boardState[toRow][toCol] = movingPiece;
+                          boardState[fromRow][fromCol] = '';
+                        }
                       }
                       const nextPlayer = i % 2 === 0 ? 'black' : 'white';
                       const algebraic = uciToAlgebraicWithBoard(move, boardState, nextPlayer);
