@@ -7,13 +7,10 @@ A modern chess application with multiple training modes, AI opponent, and openin
 ### Current Features ✅
 - **Play vs Human**: Two-player local chess game with full chess rules
 - **Play vs AI**: 
-  - Four difficulty levels: **Easy**, **Medium**, **Hard**, **Expert**
+  - **Six difficulty levels**: Beginner, Easy, Medium, Hard, Expert, Master
   - **Play as White or Black**: Choose your side with board auto-flip
   - **Optional evaluation bar**: Toggle to see position analysis
-  - Easy: Random moves (great for beginners)
-  - Medium: Stockfish depth 10, weighted selection (60%/25%/15%)
-  - Hard: Stockfish depth 15, weighted selection (80%/15%/5%)
-  - Expert: Stockfish depth 20, always best move
+  - **Realistic AI behavior**: Uses depth, Skill Level, and randomization for human-like play
   - **Mate-in-X detection**: Shows M2, M3, etc. on evaluation bar
 - **Move Trainer Mode**: 
   - Real-time Stockfish 17.1 engine analysis
@@ -23,6 +20,10 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - Moves outside top 20 marked as blunders
   - **Evaluation bar showing position strength from White's perspective**
   - **Mate-in-X display**: Shows M2, M3, etc. when checkmate is forced
+- **Move History Navigation**:
+  - Back/forward buttons to review the game
+  - Click any move to jump to that position
+  - Visual indicator when viewing history
 - **Chess Rules Implemented**:
   - All piece movements (pawns, knights, bishops, rooks, queens, kings)
   - Castling (kingside and queenside) with full legality checking
@@ -97,15 +98,19 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 - Alternates between white and black
 
 ### vs AI
-- **Choose your difficulty**: Easy, Medium, Hard, or Expert
+- **Six difficulty levels**: Choose from Beginner to Master
 - **Play as White or Black**: Select your color - board flips automatically when playing Black
 - AI makes moves automatically after your turn
-- **Easy**: Perfect for beginners - completely random legal moves
-- **Medium**: Challenging - thinks 10 moves ahead, varies its play
-- **Hard**: Strong - thinks 15 moves ahead, plays near-optimal
-- **Expert**: Maximum strength - thinks 20 moves ahead, always best move
+- **Difficulty Levels** (realistic human-like play using depth + Skill Level + randomization):
+  - **Beginner**: Depth 1, picks from 15 moves, Skill Level 0, 30% random chance - makes lots of mistakes
+  - **Easy**: Depth 3, picks from 10 moves, Skill Level 3, 15% random chance - misses tactics often
+  - **Medium**: Depth 5, picks from 5 moves, Skill Level 6, 5% random chance - club player level
+  - **Hard**: Depth 8, picks from 3 moves, Skill Level 10, 2% random chance - strong club player
+  - **Expert**: Depth 10, picks from 2 moves, Skill Level 15 - tournament player, few mistakes
+  - **Master**: Depth 15, best move only, Skill Level 20 - full Stockfish strength
 - **Evaluation bar** (optional): Toggle with 📊 button to see position analysis
 - **Mate detection**: Shows M2, M3, etc. when checkmate is forced
+- **Move history navigation**: Review the game with back/forward buttons
 
 ### Move Trainer ✨
 - **Color-coded move quality**: Each move is evaluated by Stockfish 17.1

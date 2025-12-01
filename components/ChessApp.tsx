@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, RotateCcw, Cpu, Database, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, Cpu, Database, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type Board = string[][];
@@ -44,9 +44,11 @@ export default function ChessApp() {
   const [validMoves, setValidMoves] = useState<Array<Array<number | string>>>([]);
   const [currentPlayer, setCurrentPlayer] = useState<'white' | 'black'>('white');
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
+  const [boardHistory, setBoardHistory] = useState<Board[]>([INITIAL_BOARD]); // Store board state after each move
+  const [viewingMoveIndex, setViewingMoveIndex] = useState<number | null>(null); // null = viewing current position, number = viewing historical position
   const [gameResult, setGameResult] = useState<string | null>(null); // '1-0', '0-1', '1/2-1/2', or null
   const [gameMode, setGameMode] = useState<'human' | 'ai' | 'trainer'>('human');
-  const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard' | 'expert'>('medium');
+  const [aiDifficulty, setAiDifficulty] = useState<'beginner' | 'easy' | 'medium' | 'hard' | 'expert' | 'master'>('medium');
   const [aiThinking, setAiThinking] = useState(false);
   const [stockfishReady, setStockfishReady] = useState(false);
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white'); // Player's chosen color in AI mode
@@ -391,7 +393,15 @@ export default function ChessApp() {
               
               const moveMatch = message.match(/bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/);
               if (moveMatch) {
-                const selectedMove = selectAIMove();
+                const bestMove = moveMatch[1];
+                let selectedMove = selectAIMove();
+                
+                // If no candidates were collected (can happen with UCI_LimitStrength), use bestmove directly
+                if (!selectedMove && bestMove) {
+                  console.log(`🤖 AI using bestmove directly (no candidates collected): ${bestMove}`);
+                  selectedMove = bestMove;
+                }
+                
                 if (selectedMove) {
                   console.log(`🤖 AI selected: ${selectedMove} from candidates:`, aiMoveCandidates.current.map(c => c?.move));
                   
@@ -401,8 +411,8 @@ export default function ChessApp() {
                   // Small delay for visual effect, then execute
                   setTimeout(() => executeAIMove(selectedMove), 300);
                 } else {
-                  // Easy mode: 50% chance of random move
-                  console.log('🎲 Easy AI: Making completely random legal move');
+                  // Fallback: make random legal move
+                  console.log('🎲 AI fallback: Making random legal move');
                   waitingForAIMove.current = false;
                   setAiThinking(false);
                   aiMoveQueuedRef.current = false;
@@ -418,16 +428,22 @@ export default function ChessApp() {
           }
           
           // Parse multi-pv lines for move evaluations (and collect AI move candidates)
-          if (message.startsWith && message.startsWith('info') && message.includes('multipv')) {
+          if (message.startsWith && message.startsWith('info') && message.includes(' pv ')) {
             // Collect AI move candidates when waiting for AI move
             if (waitingForAIMove.current) {
               const multipvMatch = message.match(/multipv (\d+)/);
               const scoreMatch = message.match(/score cp (-?\d+)/);
+              const mateMatch = message.match(/score mate (-?\d+)/);
               const pvMatch = message.match(/\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
               
-              if (multipvMatch && scoreMatch && pvMatch) {
-                const pvIndex = parseInt(multipvMatch[1]);
-                const centipawns = parseInt(scoreMatch[1]);
+              // For single PV (no multipv), treat as index 1
+              const pvIndex = multipvMatch ? parseInt(multipvMatch[1]) : 1;
+              
+              if (pvMatch && (scoreMatch || mateMatch)) {
+                // Convert mate score to a high centipawn value
+                const centipawns = scoreMatch 
+                  ? parseInt(scoreMatch[1]) 
+                  : (mateMatch ? (parseInt(mateMatch[1]) > 0 ? 10000 : -10000) : 0);
                 const move = pvMatch[1];
                 
                 // Determine opponent color using REF
@@ -442,10 +458,10 @@ export default function ChessApp() {
             }
             
             // Use different parser depending on whether we're analyzing selected piece or whole position
-            if (analyzingSelectedPiece.current) {
+            if (analyzingSelectedPiece.current && message.includes('multipv')) {
               console.log('🔧 Parsing piece-specific eval:', message.substring(0, 100));
               parseSelectedPieceEval(message);
-            } else if (!waitingForAIMove.current) {
+            } else if (!waitingForAIMove.current && message.includes('multipv')) {
               // Only parse for UI if not waiting for AI move
               parseStockfishEval(message);
             }
@@ -506,6 +522,16 @@ export default function ChessApp() {
   // Trigger AI move when it's the opponent's turn in AI mode
   // Use a ref to track if we've already queued an AI move for this position
   const aiMoveQueuedRef = useRef(false);
+  const aiTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Clear AI timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (aiTimeoutRef.current) {
+        clearTimeout(aiTimeoutRef.current);
+      }
+    };
+  }, []);
   
   useEffect(() => {
     console.log(`🔍 AI useEffect triggered - gameMode: ${gameMode}, currentPlayer: ${currentPlayer}, playerColor: ${playerColor}, stockfishReady: ${stockfishReady}, aiThinking: ${aiThinking}, waitingForAIMove: ${waitingForAIMove.current}, aiMoveQueued: ${aiMoveQueuedRef.current}`);
@@ -515,6 +541,11 @@ export default function ChessApp() {
     currentPlayerRef.current = currentPlayer;
     boardRef.current = board;
     playerColorRef.current = playerColor;
+    
+    // Don't trigger AI move if viewing history
+    if (viewingMoveIndex !== null) {
+      return;
+    }
     
     // Determine whose turn it is for the AI
     const opponentColor = playerColor === 'white' ? 'black' : 'white';
@@ -544,7 +575,7 @@ export default function ChessApp() {
         setAiThinking(false);
       }
     }
-  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult, playerColor]);
+  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult, playerColor, viewingMoveIndex]);
 
   // Evaluate all legal moves in trainer or AI mode (only when no piece is selected)
   useEffect(() => {
@@ -554,12 +585,19 @@ export default function ChessApp() {
       return;
     }
     
+    // Skip evaluation if it's the AI's turn in AI mode (let the AI move first)
+    const opponentColor = playerColor === 'white' ? 'black' : 'white';
+    if (gameMode === 'ai' && currentPlayer === opponentColor) {
+      console.log('⏭️ Skipping evaluateAllMoves - waiting for AI turn');
+      return;
+    }
+    
     // Evaluate position in trainer mode, or AI mode when eval bar is enabled
     const shouldEvaluate = gameMode === 'trainer' || (gameMode === 'ai' && showEvalBar);
     if (shouldEvaluate && stockfishReady && !selectedSquare) {
       evaluateAllMoves();
     }
-  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking, showEvalBar]);
+  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking, showEvalBar, playerColor]);
 
   // When piece is selected, use evaluations from general analysis
   // (Don't do piece-specific analysis since getValidMovesForBoard doesn't check for check/pins)
@@ -803,14 +841,33 @@ export default function ChessApp() {
       return;
     }
     
-    // Easy mode: 100% random moves, skip Stockfish entirely
-    if (aiDifficulty === 'easy') {
-      console.log('🎲 Easy AI: Making 100% random move (no Stockfish analysis)');
+    // Difficulty settings:
+    // The key insight is that UCI_LimitStrength doesn't make Stockfish play like a human at that ELO.
+    // It just weakens the engine, but it still plays "perfectly weak" - no human-like mistakes.
+    // To simulate realistic play, we use a combination of:
+    // 1. Lower depth (humans don't calculate 15 moves ahead)
+    // 2. MultiPV to pick from multiple moves (humans don't always find the best move)
+    // 3. Random chance for completely random moves (blunders)
+    // 4. Skill Level (0-20) which adds randomness to evaluation
+    const difficultySettings = {
+      beginner: { depth: 1, multiPV: 15, randomChance: 0.30, useSkillLevel: true, skillLevel: 0 },
+      easy: { depth: 3, multiPV: 10, randomChance: 0.15, useSkillLevel: true, skillLevel: 3 },
+      medium: { depth: 5, multiPV: 5, randomChance: 0.05, useSkillLevel: true, skillLevel: 6 },
+      hard: { depth: 8, multiPV: 3, randomChance: 0.02, useSkillLevel: true, skillLevel: 10 },
+      expert: { depth: 10, multiPV: 2, randomChance: 0, useSkillLevel: true, skillLevel: 15 },
+      master: { depth: 15, multiPV: 1, randomChance: 0, useSkillLevel: true, skillLevel: 20 }
+    };
+    
+    const settings = difficultySettings[aiDifficulty];
+    
+    // Check if we should make a completely random move (for beginner/easy)
+    if (settings.randomChance > 0 && Math.random() < settings.randomChance) {
+      console.log(`🎲 AI (${aiDifficulty}): Making random legal move (${settings.randomChance * 100}% chance triggered)`);
       setAiThinking(true);
       setTimeout(() => {
         setAiThinking(false);
         makeRandomMove();
-      }, 300); // Small delay for visual effect
+      }, 300);
       return;
     }
     
@@ -818,28 +875,60 @@ export default function ChessApp() {
     waitingForAIMove.current = true;
     aiMoveCandidates.current = []; // Clear previous candidates
     
+    // Clear any existing timeout
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+    }
+    
+    // Set a timeout to recover from stuck AI (15 seconds max)
+    aiTimeoutRef.current = setTimeout(() => {
+      if (waitingForAIMove.current) {
+        console.warn('⏰ AI timeout triggered - making random move as fallback');
+        setAiThinking(false);
+        waitingForAIMove.current = false;
+        aiMoveQueuedRef.current = false;
+        // Try to stop any pending analysis
+        try {
+          stockfishRef.current?.postMessage('stop');
+        } catch (e) {
+          // Ignore errors
+        }
+        // Make a random legal move as fallback
+        makeRandomMove();
+      }
+    }, 15000);
+    
     const fen = boardToFEN();
-    console.log(`🤖 AI (${aiDifficulty}) requesting move for position: ${fen}`);
-    
-    // Configure engine based on difficulty
-    const difficultySettings = {
-      easy: { depth: 1, multiPV: 10 },     // Not used anymore for easy
-      medium: { depth: 10, multiPV: 3 },   // Medium depth, weighted top 3
-      hard: { depth: 15, multiPV: 3 },     // Deep search, weighted top 3
-      expert: { depth: 20, multiPV: 1 }    // Maximum depth, always best
-    };
-    
-    const settings = difficultySettings[aiDifficulty];
+    console.log(`🤖 AI (${aiDifficulty}) requesting move for position: ${fen}, depth: ${settings.depth}, multiPV: ${settings.multiPV}, skillLevel: ${settings.skillLevel}`);
     
     try {
+      // Stop any ongoing analysis first
       stockfishRef.current.postMessage('stop');
-      stockfishRef.current.postMessage(`setoption name MultiPV value ${settings.multiPV}`);
-      stockfishRef.current.postMessage(`position fen ${fen}`);
-      stockfishRef.current.postMessage(`go depth ${settings.depth}`);
+      
+      // Small delay to ensure stop takes effect before sending new commands
+      setTimeout(() => {
+        if (!stockfishRef.current || !waitingForAIMove.current) return;
+        
+        // Disable UCI_LimitStrength (we use Skill Level instead for more realistic play)
+        stockfishRef.current.postMessage('setoption name UCI_LimitStrength value false');
+        
+        // Set Skill Level (0-20): adds randomness to move evaluation
+        // Lower skill = more random mistakes, higher skill = more accurate
+        if (settings.useSkillLevel) {
+          stockfishRef.current.postMessage(`setoption name Skill Level value ${settings.skillLevel}`);
+        }
+        
+        stockfishRef.current.postMessage(`setoption name MultiPV value ${settings.multiPV}`);
+        stockfishRef.current.postMessage(`position fen ${fen}`);
+        stockfishRef.current.postMessage(`go depth ${settings.depth}`);
+      }, 50);
     } catch (error) {
       console.error('Error requesting AI move:', error);
       setAiThinking(false);
       waitingForAIMove.current = false;
+      if (aiTimeoutRef.current) {
+        clearTimeout(aiTimeoutRef.current);
+      }
     }
   };
 
@@ -913,12 +1002,20 @@ export default function ChessApp() {
     // Execute the move
     movePiece(fromRow, fromCol, toRow, toCol, castleType, isEnPassant);
     
+    // Clear the AI timeout since we successfully made a move
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = null;
+    }
+    
     // Clear aiThinking immediately so UI updates, but let useEffect clear the other flags
     setAiThinking(false);
     console.log(`✅ AI move executed, aiThinking cleared, waiting for turn switch...`);
   };
 
-  // Select AI move based on difficulty and randomization
+  // Select AI move based on difficulty
+  // Lower difficulties pick randomly from multiple candidates
+  // Higher difficulties pick the best move
   const selectAIMove = (): string | null => {
     if (aiMoveCandidates.current.length === 0) {
       console.warn('No AI move candidates available');
@@ -933,41 +1030,55 @@ export default function ChessApp() {
       return null;
     }
     
-    console.log(`🎲 Selecting from ${candidates.length} candidate moves:`, candidates);
+    console.log(`🎯 AI (${aiDifficulty}) selecting from ${candidates.length} candidates:`, candidates);
     
-    // Easy: 80% completely random legal move, 20% pick from top moves at depth 1
-    if (aiDifficulty === 'easy') {
-      if (Math.random() < 0.2) {
-        // Only 20% of the time: Pick randomly from Stockfish top moves (depth 1)
-        const randomIndex = Math.floor(Math.random() * candidates.length);
-        console.log(`🎲 Easy AI: Picking from top ${candidates.length} moves at depth 1 (20% chance)`);
-        return candidates[randomIndex].move;
-      } else {
-        // 80% of the time: Pick completely random legal move
-        console.log(`🎲 Easy AI: Making completely random legal move (80% blunder chance)`);
-        return null; // Return null to trigger random move
+    // For all difficulties except Master: pick randomly from available candidates
+    // The number of candidates is controlled by multiPV setting
+    // Beginner has 15 candidates to pick from, Master has only 1
+    if (aiDifficulty !== 'master' && candidates.length > 1) {
+      // Weight towards better moves but allow worse moves
+      // For beginner: more uniform random
+      // For expert: heavily weighted towards best
+      let weights: number[];
+      switch (aiDifficulty) {
+        case 'beginner':
+          // Almost uniform distribution
+          weights = candidates.map((_, i) => Math.max(1, candidates.length - i * 0.3));
+          break;
+        case 'easy':
+          // Slight preference for better moves
+          weights = candidates.map((_, i) => Math.max(1, candidates.length - i * 0.5));
+          break;
+        case 'medium':
+          // Moderate preference for better moves
+          weights = candidates.map((_, i) => Math.max(1, candidates.length - i));
+          break;
+        case 'hard':
+          // Strong preference for better moves
+          weights = candidates.map((_, i) => Math.max(1, candidates.length - i * 2));
+          break;
+        case 'expert':
+          // Very strong preference for best move
+          weights = candidates.map((_, i) => Math.max(1, candidates.length - i * 3));
+          break;
+        default:
+          weights = candidates.map(() => 1);
+      }
+      
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      let random = Math.random() * totalWeight;
+      
+      for (let i = 0; i < candidates.length; i++) {
+        random -= weights[i];
+        if (random <= 0) {
+          console.log(`🎲 AI (${aiDifficulty}): Picked move #${i + 1} of ${candidates.length} (weighted random)`);
+          return candidates[i].move;
+        }
       }
     }
     
-    // Medium: Weighted random (60% best, 25% 2nd, 15% 3rd)
-    if (aiDifficulty === 'medium') {
-      const rand = Math.random();
-      if (rand < 0.60 && candidates.length >= 1) return candidates[0].move;
-      if (rand < 0.85 && candidates.length >= 2) return candidates[1].move;
-      if (candidates.length >= 3) return candidates[2].move;
-      return candidates[0].move;
-    }
-    
-    // Hard: Weighted random (80% best, 15% 2nd, 5% 3rd)
-    if (aiDifficulty === 'hard') {
-      const rand = Math.random();
-      if (rand < 0.80 && candidates.length >= 1) return candidates[0].move;
-      if (rand < 0.95 && candidates.length >= 2) return candidates[1].move;
-      if (candidates.length >= 3) return candidates[2].move;
-      return candidates[0].move;
-    }
-    
-    // Expert: Always best move
+    // Master difficulty or fallback: return the best move
+    console.log(`🎯 AI (${aiDifficulty}): Picking best move`);
     return candidates[0].move;
   };
 
@@ -1068,6 +1179,37 @@ export default function ChessApp() {
           newBoard[randomMove.from[0]][randomMove.from[1]] = '';
         }
 
+        // Track en passant opportunity: if pawn moved 2 squares, set target square
+        const pieceType = piece.toLowerCase();
+        const fromRow = randomMove.from[0];
+        const fromCol = randomMove.from[1];
+        const pieceIsWhite = piece === piece.toUpperCase();
+        if (pieceType === 'p' && Math.abs(toRow - fromRow) === 2) {
+          // The en passant target is the square the pawn "jumped over"
+          const targetRow = pieceIsWhite ? fromRow - 1 : fromRow + 1;
+          setEnPassantTarget([targetRow, fromCol]);
+        } else {
+          // Clear en passant target after any other move
+          setEnPassantTarget(null);
+        }
+
+        // Track king movement for castling rights
+        if (pieceType === 'k') {
+          if (pieceIsWhite) setKingMoved(prev => ({ ...prev, white: true }));
+          else setKingMoved(prev => ({ ...prev, black: true }));
+        }
+
+        // Track rook movement for castling rights
+        if (pieceType === 'r') {
+          if (pieceIsWhite) {
+            if (fromRow === 7 && fromCol === 0) setRookMoved(prev => ({ ...prev, whiteQueenSide: true }));
+            else if (fromRow === 7 && fromCol === 7) setRookMoved(prev => ({ ...prev, whiteKingSide: true }));
+          } else {
+            if (fromRow === 0 && fromCol === 0) setRookMoved(prev => ({ ...prev, blackQueenSide: true }));
+            else if (fromRow === 0 && fromCol === 7) setRookMoved(prev => ({ ...prev, blackKingSide: true }));
+          }
+        }
+
         const files = 'abcdefgh';
         const move = `${files[randomMove.from[1]]}${8 - randomMove.from[0]}${files[toCol]}${8 - toRow}`;
         setMoveHistory(prev => {
@@ -1075,6 +1217,9 @@ export default function ChessApp() {
           fetchOpeningInfo(newHistory);
           return newHistory;
         });
+        
+        // Store board state in history for move navigation
+        setBoardHistory(prev => [...prev, newBoard.map(r => [...r])]);
 
         setCurrentPlayer(nextPlayer);
         currentPlayerRef.current = nextPlayer;
@@ -1546,6 +1691,12 @@ export default function ChessApp() {
     // Convert display coordinates to board coordinates if player is Black
     const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
 
+    // Prevent moves if viewing history - click returns to current position
+    if (viewingMoveIndex !== null) {
+      setViewingMoveIndex(null);
+      return;
+    }
+
     // Prevent moves if game is over
     if (gameResult !== null) {
       console.log('Game is over. Result:', gameResult);
@@ -1639,6 +1790,9 @@ export default function ChessApp() {
     }
 
     setBoard(newBoard);
+    
+    // Store board state in history for move navigation
+    setBoardHistory(prev => [...prev, newBoard.map(r => [...r])]);
 
     const pieceType = piece.toLowerCase();
     const isWhite = piece === piece.toUpperCase();
@@ -1678,8 +1832,15 @@ export default function ChessApp() {
       }
     }
     
-    const newHistory = [...moveHistory, move];
-    setMoveHistory(newHistory);
+    // Use functional update to avoid stale closure issues with rapid moves
+    setMoveHistory(prev => {
+      const newHistory = [...prev, move];
+      // Fetch opening info with the new history
+      fetchOpeningInfo(newHistory).catch(err => {
+        console.warn('Opening info fetch failed, continuing game:', err);
+      });
+      return newHistory;
+    });
 
     // CRITICAL: Calculate next player from the piece that JUST MOVED, not from currentPlayer state
     // (currentPlayer state may be stale in async callbacks)
@@ -1695,11 +1856,6 @@ export default function ChessApp() {
       setGameResult('1/2-1/2');
     }
 
-    // Fetch opening info (non-blocking, optional)
-    fetchOpeningInfo(newHistory).catch(err => {
-      console.warn('Opening info fetch failed, continuing game:', err);
-    });
-
     // AI move is now triggered by useEffect when currentPlayer changes to 'black'
   };
 
@@ -1709,6 +1865,8 @@ export default function ChessApp() {
     setValidMoves([]);
     setCurrentPlayer('white');
     setMoveHistory([]);
+    setBoardHistory([INITIAL_BOARD]); // Reset board history
+    setViewingMoveIndex(null); // Reset viewing index
     setOpeningInfo(null);
     setGameResult(null);
     setEnPassantTarget(null);
@@ -1721,13 +1879,26 @@ export default function ChessApp() {
     boardRef.current = INITIAL_BOARD;
   };
 
-  // Get display board - flip if player is Black
+  // Get display board - flip if player is Black, show historical position if viewing history
   const getDisplayBoard = (): Board => {
+    // Determine which board to show
+    let displayBoard: Board;
+    
+    if (viewingMoveIndex !== null) {
+      // Viewing history: get board state at that move
+      // boardHistory[0] = initial position, boardHistory[1] = after move 1, etc.
+      const historyIndex = viewingMoveIndex + 1; // +1 because boardHistory[0] is initial
+      displayBoard = boardHistory[historyIndex] || INITIAL_BOARD;
+    } else {
+      // Viewing current position
+      displayBoard = board;
+    }
+    
     if (gameMode === 'ai' && playerColor === 'black') {
       // Flip the board for Black's perspective
-      return board.map(row => [...row]).reverse().map(row => row.reverse());
+      return displayBoard.map(row => [...row]).reverse().map(row => row.reverse());
     }
-    return board;
+    return displayBoard;
   };
 
   // Convert display coordinates back to board coordinates if player is Black
@@ -1742,6 +1913,61 @@ export default function ChessApp() {
     if (moveHistory.length === 0) return;
     resetGame();
   };
+
+  // Move history navigation functions
+  const goToMove = (moveIndex: number) => {
+    if (moveIndex < 0) {
+      setViewingMoveIndex(null);
+    } else if (moveIndex >= moveHistory.length) {
+      setViewingMoveIndex(null); // Go to current position
+    } else {
+      setViewingMoveIndex(moveIndex);
+    }
+    // Clear selection when navigating history
+    setSelectedSquare(null);
+    setValidMoves([]);
+  };
+
+  const goToStart = () => {
+    if (moveHistory.length > 0) {
+      setViewingMoveIndex(-1); // -1 means before any moves (initial position)
+    }
+    setSelectedSquare(null);
+    setValidMoves([]);
+  };
+
+  const goBack = () => {
+    if (viewingMoveIndex === null) {
+      // Currently at the end, go to last move
+      if (moveHistory.length > 0) {
+        setViewingMoveIndex(moveHistory.length - 2);
+      }
+    } else if (viewingMoveIndex > -1) {
+      setViewingMoveIndex(viewingMoveIndex - 1);
+    }
+    setSelectedSquare(null);
+    setValidMoves([]);
+  };
+
+  const goForward = () => {
+    if (viewingMoveIndex === null) return; // Already at the end
+    if (viewingMoveIndex >= moveHistory.length - 1) {
+      setViewingMoveIndex(null); // Go to current position
+    } else {
+      setViewingMoveIndex(viewingMoveIndex + 1);
+    }
+    setSelectedSquare(null);
+    setValidMoves([]);
+  };
+
+  const goToEnd = () => {
+    setViewingMoveIndex(null);
+    setSelectedSquare(null);
+    setValidMoves([]);
+  };
+
+  // Check if we're viewing history (not the current position)
+  const isViewingHistory = viewingMoveIndex !== null;
 
   // Example DB save using Supabase
   const saveGame = async () => {
@@ -1864,10 +2090,12 @@ export default function ChessApp() {
                       onChange={(e) => setAiDifficulty(e.target.value as any)}
                       className="px-2 py-1 rounded bg-white/20 text-white border border-white/30 text-xs font-medium hover:bg-white/30 transition cursor-pointer"
                     >
+                      <option value="beginner" className="bg-gray-800">Beginner</option>
                       <option value="easy" className="bg-gray-800">Easy</option>
                       <option value="medium" className="bg-gray-800">Medium</option>
                       <option value="hard" className="bg-gray-800">Hard</option>
                       <option value="expert" className="bg-gray-800">Expert</option>
+                      <option value="master" className="bg-gray-800">Master</option>
                     </select>
                     <button
                       onClick={() => setShowEvalBar(!showEvalBar)}
@@ -1932,37 +2160,50 @@ export default function ChessApp() {
                 {(gameMode === 'trainer' || (gameMode === 'ai' && showEvalBar)) && (
                   <div className="flex flex-col w-12">
                     <div className="flex-1 bg-gradient-to-b from-gray-800 to-gray-700 rounded-lg overflow-hidden relative shadow-lg">
-                      {/* Adjust eval display based on player color in AI mode */}
+                      {/* Evaluation bar - values always from White's perspective, colors flip based on player */}
                       {(() => {
-                        // In AI mode when playing as Black, flip the display
-                        const displayEval = (gameMode === 'ai' && playerColor === 'black') 
-                          ? -currentEvaluation 
-                          : currentEvaluation;
+                        // Always use White's perspective for evaluation values
+                        const displayEval = currentEvaluation;
                         
-                        // Check for mate - also flip for Black perspective
-                        const displayMate = mateInMoves !== null
-                          ? ((gameMode === 'ai' && playerColor === 'black') ? -mateInMoves : mateInMoves)
-                          : null;
+                        // Mate display - always from White's perspective
+                        const displayMate = mateInMoves;
                         
                         // For mate positions, show full bar advantage
                         const barEval = displayMate !== null 
                           ? (displayMate > 0 ? 1000 : -1000) 
                           : displayEval;
                         
+                        // Flip colors when playing as Black (Black on bottom, White on top)
+                        const isPlayingBlack = gameMode === 'ai' && playerColor === 'black';
+                        
+                        // Calculate heights - positive eval = White better, negative = Black better
+                        // When playing White: White on bottom (grows with positive eval)
+                        // When playing Black: Black on bottom (grows with negative eval)
+                        const whiteHeight = Math.max(0, Math.min(100, 50 + (barEval / 10)));
+                        const blackHeight = Math.max(0, Math.min(100, 50 - (barEval / 10)));
+                        
                         return (
                           <>
-                            {/* Opponent advantage area (top) - grows when evaluation is negative */}
+                            {/* Top color area */}
                             <div 
-                              className="absolute top-0 left-0 right-0 bg-gradient-to-b from-gray-900 to-gray-800 transition-all duration-300"
+                              className={`absolute top-0 left-0 right-0 transition-all duration-300 ${
+                                isPlayingBlack 
+                                  ? 'bg-gradient-to-b from-gray-100 to-white'  // White on top when playing Black
+                                  : 'bg-gradient-to-b from-gray-900 to-gray-800' // Black on top when playing White
+                              }`}
                               style={{ 
-                                height: `${Math.max(0, Math.min(100, 50 - (barEval / 10)))}%` 
+                                height: `${isPlayingBlack ? whiteHeight : blackHeight}%` 
                               }}
                             />
-                            {/* Player advantage area (bottom) - grows when evaluation is positive */}
+                            {/* Bottom color area */}
                             <div 
-                              className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-100 to-white transition-all duration-300"
+                              className={`absolute bottom-0 left-0 right-0 transition-all duration-300 ${
+                                isPlayingBlack
+                                  ? 'bg-gradient-to-t from-gray-900 to-gray-800' // Black on bottom when playing Black
+                                  : 'bg-gradient-to-t from-gray-100 to-white' // White on bottom when playing White
+                              }`}
                               style={{ 
-                                height: `${Math.max(0, Math.min(100, 50 + (barEval / 10)))}%` 
+                                height: `${isPlayingBlack ? blackHeight : whiteHeight}%` 
                               }}
                             />
                             {/* Center line */}
@@ -2046,7 +2287,34 @@ export default function ChessApp() {
                     `Current Turn: ${currentPlayer === 'white' ? '⚪ White' : '⚫ Black'}`
                   )}
                 </p>
-                {stockfishReady && gameMode === 'ai' && !aiThinking && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Engine Ready ({aiDifficulty} mode)</p>)}
+                {/* New Game button appears after game ends */}
+                {gameResult && (gameMode === 'human' || gameMode === 'ai') && (
+                  <button
+                    onClick={() => {
+                      // Clear AI flags before reset
+                      if (gameMode === 'ai') {
+                        aiMoveQueuedRef.current = false;
+                        waitingForAIMove.current = false;
+                        setAiThinking(false);
+                      }
+                      resetGame();
+                      // If playing as Black in AI mode, trigger AI first move
+                      if (gameMode === 'ai' && playerColor === 'black') {
+                        setTimeout(() => {
+                          if (stockfishReady) {
+                            console.log('🎮 New game as Black - triggering AI first move');
+                            aiMoveQueuedRef.current = true;
+                            getStockfishMove();
+                          }
+                        }, 500);
+                      }
+                    }}
+                    className="mt-3 px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition shadow-lg"
+                  >
+                    🔄 New Game
+                  </button>
+                )}
+                {stockfishReady && gameMode === 'ai' && !aiThinking && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Ready ({aiDifficulty})</p>)}
                 {gameMode === 'trainer' && (
                   <div className="mt-3 text-sm">
                     <p className="font-semibold mb-2 text-base">Move Quality Legend:</p>
@@ -2112,67 +2380,98 @@ export default function ChessApp() {
               <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><ChevronRight size={20} />Move History</h2>
               <div className="bg-black/30 rounded-lg p-4 max-h-48 overflow-y-auto">
                 {moveHistory.length === 0 ? (<p className="text-gray-400 text-sm">No moves yet</p>) : (
-                  <div className="grid grid-cols-2 gap-2 text-white text-sm font-mono">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-white text-sm font-mono">
                     {moveHistory.map((move, i) => {
                       // Reconstruct board state at this move by replaying from start
-                      let boardState = INITIAL_BOARD.map(r => [...r]);
-                      for (let j = 0; j < i; j++) {
-                        const pastMove = moveHistory[j];
-                        const fromSquare = pastMove.substring(0, 2);
-                        const toSquare = pastMove.substring(2, 4);
-                        const promotion = pastMove.length > 4 ? pastMove[4] : '';
-                        const fromRow = 8 - parseInt(fromSquare[1]);
-                        const fromCol = fromSquare.charCodeAt(0) - 'a'.charCodeAt(0);
-                        const toRow = 8 - parseInt(toSquare[1]);
-                        const toCol = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
-                        
-                        let movingPiece = boardState[fromRow][fromCol];
-                        
-                        // Handle castling (king moves 2 squares)
-                        if (movingPiece.toLowerCase() === 'k' && Math.abs(toCol - fromCol) === 2) {
-                          boardState[toRow][toCol] = movingPiece;
-                          boardState[fromRow][fromCol] = '';
-                          // Move the rook
-                          if (toCol > fromCol) {
-                            // Kingside
-                            boardState[toRow][5] = boardState[toRow][7];
-                            boardState[toRow][7] = '';
-                          } else {
-                            // Queenside
-                            boardState[toRow][3] = boardState[toRow][0];
-                            boardState[toRow][0] = '';
+                      try {
+                        let boardState = INITIAL_BOARD.map(r => [...r]);
+                        for (let j = 0; j < i; j++) {
+                          const pastMove = moveHistory[j];
+                          if (!pastMove || pastMove.length < 4) continue;
+                          
+                          const fromSquare = pastMove.substring(0, 2);
+                          const toSquare = pastMove.substring(2, 4);
+                          const promotion = pastMove.length > 4 ? pastMove[4] : '';
+                          const fromRow = 8 - parseInt(fromSquare[1]);
+                          const fromCol = fromSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+                          const toRow = 8 - parseInt(toSquare[1]);
+                          const toCol = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+                          
+                          // Validate coordinates
+                          if (fromRow < 0 || fromRow > 7 || fromCol < 0 || fromCol > 7 ||
+                              toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) continue;
+                          
+                          let movingPiece = boardState[fromRow][fromCol];
+                          if (!movingPiece) continue;
+                          
+                          // Handle castling (king moves 2 squares)
+                          if (movingPiece.toLowerCase() === 'k' && Math.abs(toCol - fromCol) === 2) {
+                            boardState[toRow][toCol] = movingPiece;
+                            boardState[fromRow][fromCol] = '';
+                            // Move the rook
+                            if (toCol > fromCol) {
+                              // Kingside
+                              boardState[toRow][5] = boardState[toRow][7];
+                              boardState[toRow][7] = '';
+                            } else {
+                              // Queenside
+                              boardState[toRow][3] = boardState[toRow][0];
+                              boardState[toRow][0] = '';
+                            }
+                          }
+                          // Handle en passant (pawn captures diagonally to empty square)
+                          else if (movingPiece.toLowerCase() === 'p' && 
+                                   Math.abs(toCol - fromCol) === 1 && 
+                                   boardState[toRow][toCol] === '') {
+                            boardState[toRow][toCol] = movingPiece;
+                            boardState[fromRow][fromCol] = '';
+                            // Remove captured pawn
+                            boardState[fromRow][toCol] = '';
+                          }
+                          // Handle promotion
+                          else if (movingPiece.toLowerCase() === 'p' && promotion) {
+                            movingPiece = movingPiece === movingPiece.toUpperCase() ? promotion.toUpperCase() : promotion.toLowerCase();
+                            boardState[toRow][toCol] = movingPiece;
+                            boardState[fromRow][fromCol] = '';
+                          }
+                          // Normal move
+                          else {
+                            boardState[toRow][toCol] = movingPiece;
+                            boardState[fromRow][fromCol] = '';
                           }
                         }
-                        // Handle en passant (pawn captures diagonally to empty square)
-                        else if (movingPiece.toLowerCase() === 'p' && 
-                                 Math.abs(toCol - fromCol) === 1 && 
-                                 boardState[toRow][toCol] === '') {
-                          boardState[toRow][toCol] = movingPiece;
-                          boardState[fromRow][fromCol] = '';
-                          // Remove captured pawn
-                          boardState[fromRow][toCol] = '';
-                        }
-                        // Handle promotion
-                        else if (movingPiece.toUpperCase() === 'P' && promotion) {
-                          movingPiece = movingPiece === movingPiece.toUpperCase() ? promotion.toUpperCase() : promotion.toLowerCase();
-                          boardState[toRow][toCol] = movingPiece;
-                          boardState[fromRow][fromCol] = '';
-                        }
-                        // Normal move
-                        else {
-                          boardState[toRow][toCol] = movingPiece;
-                          boardState[fromRow][fromCol] = '';
-                        }
+                        const nextPlayer = i % 2 === 0 ? 'black' : 'white';
+                        const algebraic = uciToAlgebraicWithBoard(move, boardState, nextPlayer);
+                        const isCurrentlyViewing = viewingMoveIndex === i;
+                        const isLatestMove = viewingMoveIndex === null && i === moveHistory.length - 1;
+                        
+                        return (
+                          <div key={i} className="flex gap-2">
+                            {i % 2 === 0 && <span className="text-gray-400">{Math.floor(i / 2) + 1}.</span>}
+                            <span 
+                              onClick={() => goToMove(i)}
+                              className={`cursor-pointer hover:text-blue-300 transition-colors ${isCurrentlyViewing || isLatestMove ? 'bg-blue-600/50 px-1 rounded' : ''}`}
+                            >
+                              {algebraic}
+                            </span>
+                          </div>
+                        );
+                      } catch (e) {
+                        // Fallback: just show the raw move
+                        const isCurrentlyViewing = viewingMoveIndex === i;
+                        const isLatestMove = viewingMoveIndex === null && i === moveHistory.length - 1;
+                        return (
+                          <div key={i} className="flex gap-2">
+                            {i % 2 === 0 && <span className="text-gray-400">{Math.floor(i / 2) + 1}.</span>}
+                            <span 
+                              onClick={() => goToMove(i)}
+                              className={`cursor-pointer hover:text-blue-300 transition-colors ${isCurrentlyViewing || isLatestMove ? 'bg-blue-600/50 px-1 rounded' : ''}`}
+                            >
+                              {move}
+                            </span>
+                          </div>
+                        );
                       }
-                      const nextPlayer = i % 2 === 0 ? 'black' : 'white';
-                      const algebraic = uciToAlgebraicWithBoard(move, boardState, nextPlayer);
-                      
-                      return (
-                        <div key={i} className="flex gap-2">
-                          {i % 2 === 0 && <span className="text-gray-400">{Math.floor(i / 2) + 1}.</span>}
-                          <span>{algebraic}</span>
-                        </div>
-                      );
                     })}
                   </div>
                 )}
@@ -2182,6 +2481,50 @@ export default function ChessApp() {
                   </div>
                 )}
               </div>
+              {/* Move navigation buttons */}
+              {moveHistory.length > 0 && (
+                <div className="flex justify-center gap-2 mt-3">
+                  <button 
+                    onClick={goToStart}
+                    disabled={viewingMoveIndex === -1}
+                    className="p-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 text-white rounded transition-colors"
+                    title="Go to start"
+                  >
+                    <ChevronsLeft size={18} />
+                  </button>
+                  <button 
+                    onClick={goBack}
+                    disabled={viewingMoveIndex === -1}
+                    className="p-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 text-white rounded transition-colors"
+                    title="Previous move"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button 
+                    onClick={goForward}
+                    disabled={viewingMoveIndex === null}
+                    className="p-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 text-white rounded transition-colors"
+                    title="Next move"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                  <button 
+                    onClick={goToEnd}
+                    disabled={viewingMoveIndex === null}
+                    className="p-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 text-white rounded transition-colors"
+                    title="Go to current position"
+                  >
+                    <ChevronsRight size={18} />
+                  </button>
+                </div>
+              )}
+              {/* Viewing history indicator */}
+              {viewingMoveIndex !== null && (
+                <div className="text-center mt-2 text-yellow-400 text-sm">
+                  Viewing move {viewingMoveIndex + 1} of {moveHistory.length}
+                  {viewingMoveIndex === -1 && ' (starting position)'}
+                </div>
+              )}
             </div>
 
             <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 shadow-2xl">

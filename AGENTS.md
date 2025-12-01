@@ -212,21 +212,22 @@ isSquareUnderAttack(boardState: Board, row: number, col: number, attackingColor:
 
 2. **Game Modes**
    - vs Human: Local two-player
-   - **vs AI: Play against Stockfish with 4 difficulty levels** ✅
+   - **vs AI: Play against Stockfish with 6 difficulty levels** ✅
    - **Move Trainer: Stockfish-powered move evaluation** ✅
 
 3. **AI Opponent Features** ✅
-   - **Stockfish 17.1 Integration**: Full chess engine with MultiPV analysis
-   - **Four Difficulty Levels**:
-     - Easy: 100% random legal moves (no engine)
-     - Medium: Depth 10, weighted selection (60%/25%/15%)
-     - Hard: Depth 15, weighted selection (80%/15%/5%)
-     - Expert: Depth 20, always best move
+   - **Stockfish 17.1 Integration**: Full chess engine with Skill Level control
+   - **Six Difficulty Levels** (using depth + MultiPV + Skill Level for realistic play):
+     - Beginner: Depth 1, picks from 15 moves, Skill Level 0, 30% random chance
+     - Easy: Depth 3, picks from 10 moves, Skill Level 3, 15% random chance
+     - Medium: Depth 5, picks from 5 moves, Skill Level 6, 5% random chance
+     - Hard: Depth 8, picks from 3 moves, Skill Level 10, 2% random chance
+     - Expert: Depth 10, picks from 2 moves, Skill Level 15
+     - Master: Depth 15, best move only, Skill Level 20 (full strength)
    - **Play as White or Black**: Choose your color before starting
    - **Board Flip**: Board automatically flips when playing as Black
    - **AI Thinking Indicator**: Shows when AI is calculating
    - **Move Validation**: AI only makes legal moves
-   - **Difficulty Selector**: Dropdown in AI mode
    - **Evaluation Bar Toggle**: Show/hide position evaluation
 
 4. **Move Trainer Features** ✨

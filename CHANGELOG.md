@@ -14,6 +14,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.7.0] - 2025-11-30
+
+### Added
+- **Move History Navigation** 📜
+  - Back/forward buttons to step through the game
+  - Double-arrow buttons to jump to start/end
+  - Click any move to jump directly to that position
+  - Visual indicator when viewing historical position
+  - Click board to return to current position
+  - Works in both vs Human and vs AI modes
+
+### Changed
+- **Overhauled AI Difficulty System** 🎯
+  - Replaced UCI_LimitStrength/UCI_Elo with more realistic approach
+  - New system uses: shallow depth + Skill Level + MultiPV + randomization
+  - **Beginner**: Depth 1, 15 candidates, Skill Level 0, 30% random - makes lots of mistakes
+  - **Easy**: Depth 3, 10 candidates, Skill Level 3, 15% random - misses tactics often
+  - **Medium**: Depth 5, 5 candidates, Skill Level 6, 5% random - club player level
+  - **Hard**: Depth 8, 3 candidates, Skill Level 10, 2% random - strong club player
+  - **Expert**: Depth 10, 2 candidates, Skill Level 15 - tournament player
+  - **Master**: Depth 15, best move only, Skill Level 20 - full strength
+  - Weighted random selection: lower difficulties more uniform, higher weighted towards best
+  - Much more realistic play at lower difficulties (previously Medium played at 2450+ ELO!)
+
+### Fixed
+- **AI Getting Stuck** - Fixed race condition where evaluateAllMoves interfered with AI move
+  - Skip evaluation during AI's turn
+  - Added delay after stop command before sending new commands
+  - Skip AI trigger while viewing history
+- **En Passant in makeRandomMove** - Random move fallback now properly sets en passant target
+- Improved parsing for single-PV analysis (when MultiPV=1)
+- Added mate score handling in AI move parsing
+
+## [0.6.0] - 2025-11-30
+
+### Changed
+- **Six AI Difficulty Levels** �
+  - Replaced ELO slider with 6 discrete difficulty levels
+  - **Beginner**: Random from top 10 moves (depth 1), 25% chance of random legal move
+  - **Easy**: Random from top 8 moves (depth 2), 7% chance of random legal move  
+  - **Medium**: Stockfish at ELO 1320 (club player)
+  - **Hard**: Stockfish at ELO 1500 (strong club player)
+  - **Expert**: Stockfish at ELO 1700 (tournament player)
+  - **Master**: Stockfish at ELO 2000 (master level)
+  - Uses Stockfish's native `UCI_LimitStrength` and `UCI_Elo` for Medium-Master
+  - Beginner/Easy use shallow depth + randomization for weaker play
+
+### Removed
+- Removed ELO slider (replaced with dropdown)
+
 ## [0.5.0] - 2025-11-30
 
 ### Added
