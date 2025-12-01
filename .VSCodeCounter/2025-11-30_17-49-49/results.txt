@@ -1,0 +1,71 @@
+Date : 2025-11-30 17:49:49
+Directory : c:\Users\opsec\dev\ChessApp
+Total : 31 files,  287914 codes, 66006 comments, 7730 blanks, all 361650 lines
+
+Languages
++-------------------------+------------+------------+------------+------------+------------+
+| language                | files      | code       | comment    | blank      | total      |
++-------------------------+------------+------------+------------+------------+------------+
+| WebAssembly Text Format |          2 |    276,508 |     65,524 |      6,914 |    348,946 |
+| JSON                    |          2 |      6,855 |          0 |          2 |      6,857 |
+| TypeScript JSX          |          8 |      2,014 |        309 |        313 |      2,636 |
+| TypeScript              |          8 |      1,383 |        155 |        235 |      1,773 |
+| Markdown                |          3 |      1,058 |          0 |        253 |      1,311 |
+| JavaScript              |          5 |         52 |         17 |          8 |         77 |
+| JSON with Comments      |          1 |         30 |          0 |          1 |         31 |
+| PostCSS                 |          1 |          9 |          0 |          3 |         12 |
+| MS SQL                  |          1 |          5 |          1 |          1 |          7 |
++-------------------------+------------+------------+------------+------------+------------+
+
+Directories
++----------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                       | files      | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                          |         31 |    287,914 |     66,006 |      7,730 |    361,650 |
+| . (Files)                                                                  |         11 |      7,982 |          8 |        262 |      8,252 |
+| __tests__                                                                  |          5 |        911 |         78 |        170 |      1,159 |
+| __tests__\chess                                                            |          5 |        911 |         78 |        170 |      1,159 |
+| components                                                                 |          1 |      1,945 |        309 |        299 |      2,553 |
+| lib                                                                        |          2 |        472 |         72 |         63 |        607 |
+| pages                                                                      |          7 |         69 |          0 |         14 |         83 |
+| public                                                                     |          4 |    276,526 |     65,539 |      6,919 |    348,984 |
+| styles                                                                     |          1 |          9 |          0 |          3 |         12 |
++----------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++----------------------------------------------------------------------------+-------------------------+------------+------------+------------+------------+
+| filename                                                                   | language                | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------+-------------------------+------------+------------+------------+------------+
+| c:\Users\opsec\dev\ChessApp\AGENTS.md                                      | Markdown                |        564 |          0 |        165 |        729 |
+| c:\Users\opsec\dev\ChessApp\CHANGELOG.md                                   | Markdown                |        309 |          0 |         40 |        349 |
+| c:\Users\opsec\dev\ChessApp\README.md                                      | Markdown                |        185 |          0 |         48 |        233 |
+| c:\Users\opsec\dev\ChessApp\__tests__\chess\checkDetection.test.ts         | TypeScript              |        142 |         11 |         22 |        175 |
+| c:\Users\opsec\dev\ChessApp\__tests__\chess\gameEnd.test.ts                | TypeScript              |        116 |         16 |         24 |        156 |
+| c:\Users\opsec\dev\ChessApp\__tests__\chess\moveGeneration.test.ts         | TypeScript              |        282 |         29 |         45 |        356 |
+| c:\Users\opsec\dev\ChessApp\__tests__\chess\notation.test.ts               | TypeScript              |        156 |          6 |         38 |        200 |
+| c:\Users\opsec\dev\ChessApp\__tests__\chess\specialMoves.test.ts           | TypeScript              |        215 |         16 |         41 |        272 |
+| c:\Users\opsec\dev\ChessApp\components\ChessApp.tsx                        | TypeScript JSX          |      1,945 |        309 |        299 |      2,553 |
+| c:\Users\opsec\dev\ChessApp\jest.config.js                                 | JavaScript              |         18 |          1 |          1 |         20 |
+| c:\Users\opsec\dev\ChessApp\lib\chess.ts                                   | TypeScript              |        468 |         72 |         60 |        600 |
+| c:\Users\opsec\dev\ChessApp\lib\supabase.ts                                | TypeScript              |          4 |          0 |          3 |          7 |
+| c:\Users\opsec\dev\ChessApp\next-env.d.ts                                  | TypeScript              |          0 |          5 |          2 |          7 |
+| c:\Users\opsec\dev\ChessApp\package-lock.json                              | JSON                    |      6,819 |          0 |          1 |      6,820 |
+| c:\Users\opsec\dev\ChessApp\package.json                                   | JSON                    |         36 |          0 |          1 |         37 |
+| c:\Users\opsec\dev\ChessApp\pages\404.tsx                                  | TypeScript JSX          |          8 |          0 |          1 |          9 |
+| c:\Users\opsec\dev\ChessApp\pages\500.tsx                                  | TypeScript JSX          |          8 |          0 |          1 |          9 |
+| c:\Users\opsec\dev\ChessApp\pages\_app.tsx                                 | TypeScript JSX          |          5 |          0 |          2 |          7 |
+| c:\Users\opsec\dev\ChessApp\pages\_document.tsx                            | TypeScript JSX          |         12 |          0 |          2 |         14 |
+| c:\Users\opsec\dev\ChessApp\pages\_error.tsx                               | TypeScript JSX          |         20 |          0 |          5 |         25 |
+| c:\Users\opsec\dev\ChessApp\pages\index.tsx                                | TypeScript JSX          |          4 |          0 |          2 |          6 |
+| c:\Users\opsec\dev\ChessApp\pages\test.tsx                                 | TypeScript JSX          |         12 |          0 |          1 |         13 |
+| c:\Users\opsec\dev\ChessApp\postcss.config.js                              | JavaScript              |          6 |          0 |          1 |          7 |
+| c:\Users\opsec\dev\ChessApp\public\stockfish-17.1-lite-single-03e3232.wasm | WebAssembly Text Format |    138,254 |     32,762 |      3,457 |    174,473 |
+| c:\Users\opsec\dev\ChessApp\public\stockfish-worker.js                     | JavaScript              |         17 |          5 |          5 |         27 |
+| c:\Users\opsec\dev\ChessApp\public\stockfish.js                            | JavaScript              |          1 |         10 |          0 |         11 |
+| c:\Users\opsec\dev\ChessApp\public\stockfish.wasm                          | WebAssembly Text Format |    138,254 |     32,762 |      3,457 |    174,473 |
+| c:\Users\opsec\dev\ChessApp\styles\globals.css                             | PostCSS                 |          9 |          0 |          3 |         12 |
+| c:\Users\opsec\dev\ChessApp\supabase_schema.sql                            | MS SQL                  |          5 |          1 |          1 |          7 |
+| c:\Users\opsec\dev\ChessApp\tailwind.config.js                             | JavaScript              |         10 |          1 |          1 |         12 |
+| c:\Users\opsec\dev\ChessApp\tsconfig.json                                  | JSON with Comments      |         30 |          0 |          1 |         31 |
+| Total                                                                      |                         |    287,914 |     66,006 |      7,730 |    361,650 |
++----------------------------------------------------------------------------+-------------------------+------------+------------+------------+------------+

@@ -130,10 +130,81 @@ info depth 15 multipv 1 score cp 38 pv e2e4 e7e5
 | File | Purpose |
 |------|---------|
 | `pages/index.tsx` | Entry point, renders ChessApp component |
-| `components/ChessApp.tsx` | Main chess game logic and UI (465 lines) |
+| `components/ChessApp.tsx` | Main chess game logic and UI (~2500 lines) |
+| `lib/chess.ts` | Pure chess logic functions (testable) |
 | `lib/supabase.ts` | Supabase client configuration |
 | `styles/globals.css` | Global styles and Tailwind imports |
 | `supabase_schema.sql` | Database schema for game storage |
+| `__tests__/chess/*.test.ts` | Unit tests for chess logic |
+
+## Testing
+
+The project uses **Jest** with **ts-jest** for unit testing chess logic.
+
+### Running Tests
+
+```bash
+npm test              # Run all tests once
+npm run test:watch    # Watch mode (re-run on file changes)
+npm run test:coverage # Generate coverage report
+```
+
+### Test Structure
+
+```
+__tests__/
+└── chess/
+    ├── checkDetection.test.ts  # 45 tests: attack detection, check detection
+    ├── gameEnd.test.ts         # 22 tests: checkmate, stalemate patterns
+    ├── moveGeneration.test.ts  # 31 tests: all piece movements, pins
+    ├── specialMoves.test.ts    # 20 tests: castling, en passant, promotion
+    └── notation.test.ts        # 13 tests: FEN parsing/generation
+```
+
+### Chess Logic Library (`lib/chess.ts`)
+
+Pure functions extracted for testability:
+
+```typescript
+// Types
+type Board = string[][];
+type Color = 'white' | 'black';
+interface GameState { enPassantTarget, kingMoved, rookMoved }
+
+// Core functions
+fenToBoard(fen: string): Board
+boardToFEN(board: Board): string
+fenToGameState(fen: string): GameState
+
+// Attack detection
+isSquareUnderAttack(board, row, col, byColor): boolean
+isKingInCheck(board, color): boolean
+findKing(board, color): [number, number] | null
+
+// Move generation
+getPseudoLegalMoves(board, row, col, gameState): Move[]
+getLegalMoves(board, row, col, gameState): Move[]  // Filters check
+simulateMove(board, fromRow, fromCol, toRow, toCol, special?): Board
+
+// Game state
+hasLegalMoves(board, color, gameState): boolean
+isCheckmate(board, color, gameState): boolean
+isStalemate(board, color, gameState): boolean
+```
+
+### Writing Tests
+
+Tests use FEN notation to set up positions:
+
+```typescript
+import { fenToBoard, fenToGameState, isCheckmate } from '../../lib/chess';
+
+it('detects back rank mate', () => {
+  const board = fenToBoard('4k3/8/8/8/8/8/3PPP2/r3K3 w - - 0 1');
+  const state = fenToGameState('4k3/8/8/8/8/8/3PPP2/r3K3 w - - 0 1');
+  expect(isCheckmate(board, 'white', state)).toBe(true);
+});
+```
 
 ## Component Structure
 

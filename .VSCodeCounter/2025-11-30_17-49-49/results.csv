@@ -1,0 +1,33 @@
+"filename", "language", "Markdown", "TypeScript", "JSON with Comments", "JavaScript", "MS SQL", "JSON", "PostCSS", "TypeScript JSX", "WebAssembly Text Format", "comment", "blank", "total"
+"c:\Users\opsec\dev\ChessApp\AGENTS.md", "Markdown", 564, 0, 0, 0, 0, 0, 0, 0, 0, 0, 165, 729
+"c:\Users\opsec\dev\ChessApp\CHANGELOG.md", "Markdown", 309, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 349
+"c:\Users\opsec\dev\ChessApp\README.md", "Markdown", 185, 0, 0, 0, 0, 0, 0, 0, 0, 0, 48, 233
+"c:\Users\opsec\dev\ChessApp\__tests__\chess\checkDetection.test.ts", "TypeScript", 0, 142, 0, 0, 0, 0, 0, 0, 0, 11, 22, 175
+"c:\Users\opsec\dev\ChessApp\__tests__\chess\gameEnd.test.ts", "TypeScript", 0, 116, 0, 0, 0, 0, 0, 0, 0, 16, 24, 156
+"c:\Users\opsec\dev\ChessApp\__tests__\chess\moveGeneration.test.ts", "TypeScript", 0, 282, 0, 0, 0, 0, 0, 0, 0, 29, 45, 356
+"c:\Users\opsec\dev\ChessApp\__tests__\chess\notation.test.ts", "TypeScript", 0, 156, 0, 0, 0, 0, 0, 0, 0, 6, 38, 200
+"c:\Users\opsec\dev\ChessApp\__tests__\chess\specialMoves.test.ts", "TypeScript", 0, 215, 0, 0, 0, 0, 0, 0, 0, 16, 41, 272
+"c:\Users\opsec\dev\ChessApp\components\ChessApp.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 1945, 0, 309, 299, 2553
+"c:\Users\opsec\dev\ChessApp\jest.config.js", "JavaScript", 0, 0, 0, 18, 0, 0, 0, 0, 0, 1, 1, 20
+"c:\Users\opsec\dev\ChessApp\lib\chess.ts", "TypeScript", 0, 468, 0, 0, 0, 0, 0, 0, 0, 72, 60, 600
+"c:\Users\opsec\dev\ChessApp\lib\supabase.ts", "TypeScript", 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7
+"c:\Users\opsec\dev\ChessApp\next-env.d.ts", "TypeScript", 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 2, 7
+"c:\Users\opsec\dev\ChessApp\package-lock.json", "JSON", 0, 0, 0, 0, 0, 6819, 0, 0, 0, 0, 1, 6820
+"c:\Users\opsec\dev\ChessApp\package.json", "JSON", 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 1, 37
+"c:\Users\opsec\dev\ChessApp\pages\404.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 1, 9
+"c:\Users\opsec\dev\ChessApp\pages\500.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 1, 9
+"c:\Users\opsec\dev\ChessApp\pages\_app.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 2, 7
+"c:\Users\opsec\dev\ChessApp\pages\_document.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 2, 14
+"c:\Users\opsec\dev\ChessApp\pages\_error.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 20, 0, 0, 5, 25
+"c:\Users\opsec\dev\ChessApp\pages\index.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 2, 6
+"c:\Users\opsec\dev\ChessApp\pages\test.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 1, 13
+"c:\Users\opsec\dev\ChessApp\postcss.config.js", "JavaScript", 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 1, 7
+"c:\Users\opsec\dev\ChessApp\public\stockfish-17.1-lite-single-03e3232.wasm", "WebAssembly Text Format", 0, 0, 0, 0, 0, 0, 0, 0, 138254, 32762, 3457, 174473
+"c:\Users\opsec\dev\ChessApp\public\stockfish-worker.js", "JavaScript", 0, 0, 0, 17, 0, 0, 0, 0, 0, 5, 5, 27
+"c:\Users\opsec\dev\ChessApp\public\stockfish.js", "JavaScript", 0, 0, 0, 1, 0, 0, 0, 0, 0, 10, 0, 11
+"c:\Users\opsec\dev\ChessApp\public\stockfish.wasm", "WebAssembly Text Format", 0, 0, 0, 0, 0, 0, 0, 0, 138254, 32762, 3457, 174473
+"c:\Users\opsec\dev\ChessApp\styles\globals.css", "PostCSS", 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 3, 12
+"c:\Users\opsec\dev\ChessApp\supabase_schema.sql", "MS SQL", 0, 0, 0, 0, 5, 0, 0, 0, 0, 1, 1, 7
+"c:\Users\opsec\dev\ChessApp\tailwind.config.js", "JavaScript", 0, 0, 0, 10, 0, 0, 0, 0, 0, 1, 1, 12
+"c:\Users\opsec\dev\ChessApp\tsconfig.json", "JSON with Comments", 0, 0, 30, 0, 0, 0, 0, 0, 0, 0, 1, 31
+"Total", "-", 1058, 1383, 30, 52, 5, 6855, 9, 2014, 276508, 66006, 7730, 361650

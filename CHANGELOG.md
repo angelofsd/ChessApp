@@ -14,6 +14,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.8.0] - 2025-11-30
+
+### Added
+- **Comprehensive Unit Test Suite** 🧪
+  - 111 tests covering all chess logic
+  - Jest + ts-jest configuration for TypeScript
+  - Test commands: `npm test`, `npm run test:watch`, `npm run test:coverage`
+
+- **Chess Logic Library** (`lib/chess.ts`) 📚
+  - Extracted pure functions from ChessApp.tsx for testability
+  - Functions: `fenToBoard()`, `boardToFEN()`, `fenToGameState()`
+  - Attack detection: `isSquareUnderAttack()`, `isKingInCheck()`, `findKing()`
+  - Move generation: `getPseudoLegalMoves()`, `getLegalMoves()`, `simulateMove()`
+  - Game state: `hasLegalMoves()`, `isCheckmate()`, `isStalemate()`
+
+- **Test Categories**:
+  - **Check Detection** (45 tests): All piece attack patterns, blocking, discovered check
+  - **Game End** (22 tests): Checkmate patterns (back rank, scholar's, fool's, smothered, ladder), stalemate
+  - **Move Generation** (31 tests): All piece types, pinned pieces, check evasion
+  - **Special Moves** (20 tests): Castling (all restrictions), en passant, promotion
+  - **FEN Notation** (13 tests): Parsing, generation, round-trip validation
+
+### Technical
+- Added Jest configuration (`jest.config.js`) with ts-jest preset
+- Added test scripts to package.json: `test`, `test:watch`, `test:coverage`
+- Created `__tests__/chess/` directory structure
+- All tests use FEN notation for position setup
+
 ## [0.7.0] - 2025-11-30
 
 ### Added

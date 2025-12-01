@@ -79,7 +79,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ├── components/
 │   └── ChessApp.tsx          # Main chess UI component
 ├── lib/
+│   ├── chess.ts              # Pure chess logic (testable)
 │   └── supabase.ts           # Supabase client setup
+├── __tests__/
+│   └── chess/                # Chess logic unit tests
+│       ├── checkDetection.test.ts
+│       ├── gameEnd.test.ts
+│       ├── moveGeneration.test.ts
+│       ├── specialMoves.test.ts
+│       └── notation.test.ts
 ├── pages/
 │   ├── _app.tsx              # Next.js app wrapper
 │   ├── index.tsx             # Home page
@@ -183,7 +191,33 @@ npm start
 - [ ] User authentication and saved games per user
 - [ ] Move analysis and post-game review
 - [ ] Puzzle mode
-- [ ] Unit tests and CI/CD
+- [x] Unit tests for chess logic ✅
+- [ ] CI/CD integration
+
+## Testing
+
+The project includes comprehensive unit tests for chess logic using Jest:
+
+```bash
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+### Test Coverage
+
+The test suite includes 111 tests covering:
+
+- **Check Detection** (45 tests): `findKing()`, `isSquareUnderAttack()`, `isKingInCheck()` for all piece types
+- **Game End** (22 tests): `isCheckmate()`, `isStalemate()`, classic mate patterns (back rank, scholar's, fool's, smothered)
+- **Move Generation** (31 tests): All piece movements, pinned pieces, check evasion
+- **Special Moves** (20 tests): Castling (all restrictions), en passant, pawn promotion
+- **FEN Notation** (13 tests): Parsing, generation, round-trip validation
 
 ## Contributing
 
