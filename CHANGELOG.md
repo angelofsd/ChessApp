@@ -14,6 +14,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.10.0] - 2025-12-01
+
+### Added
+- **Custom Logo/Branding** 🎨
+  - ChessTrainer+ logo displayed above the board
+  - Blue glow effect to blend with app theme
+  - Responsive sizing (80% of board width)
+
+- **Last Move Highlighting** 🟡
+  - Yellow/gold highlight on the last move's from and to squares
+  - Similar to Chess.com and Lichess visual feedback
+  - Helps players track what just happened
+  - Light squares: `bg-yellow-300`, Dark squares: `bg-yellow-500`
+
+- **Trainer Mode: AI Opponent** 🤖
+  - New opponent selector in Trainer mode: Human (👤) or AI (🤖)
+  - Play against Stockfish while still seeing move quality hints
+  - All 6 difficulty levels available (Beginner → Master)
+  - Perfect for learning with guidance while AI responds
+  - AI thinking indicator integrated with turn display
+
+- **Improved Drag and Drop** ✨
+  - Switched from HTML5 Drag API to pure mouse events
+  - More reliable piece following (no more offset issues)
+  - Piece renders directly to document body via React Portal
+  - Hidden cursor during drag for cleaner look
+  - Works correctly when board is flipped (playing as Black)
+
+### Changed
+- **Turn/AI Status Display** 
+  - Combined turn indicator with AI thinking status
+  - No more flickering between messages
+  - Shows: "Current Turn: ⚫ Black • 🔄 AI thinking..." when AI is calculating
+  - Based on whose turn it is, not the `aiThinking` state (more stable)
+
+### Fixed
+- **AI Moves in Trainer Mode**
+  - Fixed AI not executing moves in Trainer mode (was checking for `gameMode === 'ai'` only)
+  - Now correctly checks for Trainer mode with AI opponent
+  - Fixed duplicate/conflicting Stockfish analysis between hints and AI moves
+
 ## [0.9.0] - 2025-12-01
 
 ### Added

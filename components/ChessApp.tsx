@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, Cpu, Database, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import EvaluationBar from './EvaluationBar';
@@ -35,6 +36,8 @@ export default function ChessApp() {
   const [aiThinking, setAiThinking] = useState(false);
   const [stockfishReady, setStockfishReady] = useState(false);
   const [playerColor, setPlayerColor] = useState<Color>('white'); // Player's chosen color in AI mode
+  const [trainerOpponent, setTrainerOpponent] = useState<'human' | 'ai'>('human'); // Opponent type in trainer mode
+  const [lastMove, setLastMove] = useState<{ from: [number, number]; to: [number, number] } | null>(null); // Track last move for highlighting
   
   // Drag and drop state
   const [draggingFrom, setDraggingFrom] = useState<[number, number] | null>(null);
@@ -47,6 +50,7 @@ export default function ChessApp() {
   const currentPlayerRef = useRef<Color>(currentPlayer);
   const boardRef = useRef<Board>(board);
   const playerColorRef = useRef<Color>(playerColor);
+  const trainerOpponentRef = useRef<'human' | 'ai'>(trainerOpponent);
   const [moveEvaluations, setMoveEvaluations] = useState<Record<string, number>>({});
   const [bestMoveEval, setBestMoveEval] = useState<number | null>(null); // Store the absolute best move evaluation
   const [currentEvaluation, setCurrentEvaluation] = useState<number>(0); // Current position evaluation in centipawns
@@ -535,6 +539,7 @@ export default function ChessApp() {
     currentPlayerRef.current = currentPlayer;
     boardRef.current = board;
     playerColorRef.current = playerColor;
+    trainerOpponentRef.current = trainerOpponent;
     
     // Don't trigger AI move if viewing history
     if (viewingMoveIndex !== null) {
@@ -544,8 +549,11 @@ export default function ChessApp() {
     // Determine whose turn it is for the AI
     const opponentColor = playerColor === 'white' ? 'black' : 'white';
     
+    // Check if AI should move (vs AI mode, or Trainer mode with AI opponent)
+    const isAIGame = gameMode === 'ai' || (gameMode === 'trainer' && trainerOpponent === 'ai');
+    
     // Only trigger AI move when all conditions are met AND flag is not set
-    if (gameMode === 'ai' && 
+    if (isAIGame && 
         currentPlayer === opponentColor && 
         stockfishReady && 
         !aiThinking && 
@@ -561,7 +569,7 @@ export default function ChessApp() {
     }
     // CRITICAL: Reset the flag when turn switches back to player's turn
     // This must happen to allow AI to move again on the NEXT opponent turn
-    else if (currentPlayer === playerColor) {
+    else if (currentPlayer === playerColor && isAIGame) {
       if (aiMoveQueuedRef.current || waitingForAIMove.current || aiThinking) {
         console.log(`🔄 Turn switched to player (${playerColor}) - clearing ALL AI flags`);
         aiMoveQueuedRef.current = false;
@@ -569,29 +577,33 @@ export default function ChessApp() {
         setAiThinking(false);
       }
     }
-  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult, playerColor, viewingMoveIndex]);
+  }, [currentPlayer, gameMode, stockfishReady, aiThinking, gameResult, playerColor, viewingMoveIndex, trainerOpponent]);
 
   // Evaluate all legal moves in trainer or AI mode (only when no piece is selected)
   useEffect(() => {
-    // Skip evaluation if AI is currently making a move
-    if (waitingForAIMove.current || aiThinking) {
-      console.log('⏭️ Skipping evaluateAllMoves - AI is thinking/moving');
-      return;
-    }
-    
-    // Skip evaluation if it's the AI's turn in AI mode (let the AI move first)
+    // Skip evaluation if it's the AI's turn in AI mode or trainer with AI opponent (let the AI move first)
     const opponentColor = playerColor === 'white' ? 'black' : 'white';
-    if (gameMode === 'ai' && currentPlayer === opponentColor) {
-      console.log('⏭️ Skipping evaluateAllMoves - waiting for AI turn');
+    const isAIGame = gameMode === 'ai' || (gameMode === 'trainer' && trainerOpponent === 'ai');
+    
+    // Don't evaluate when it's AI's turn - they need exclusive access to Stockfish
+    if (isAIGame && currentPlayer === opponentColor) {
+      console.log('⏭️ Skipping evaluateAllMoves - AI turn, engine busy');
       return;
     }
     
     // Evaluate position in trainer mode, or AI mode when eval bar is enabled
     const shouldEvaluate = gameMode === 'trainer' || (gameMode === 'ai' && showEvalBar);
     if (shouldEvaluate && stockfishReady && !selectedSquare) {
-      evaluateAllMoves();
+      // Small delay to let any pending AI operations complete
+      const timer = setTimeout(() => {
+        // Double-check AI isn't calculating (refs can change)
+        if (!waitingForAIMove.current && !aiMoveQueuedRef.current) {
+          evaluateAllMoves();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, aiThinking, showEvalBar, playerColor]);
+  }, [board, currentPlayer, gameMode, stockfishReady, selectedSquare, showEvalBar, playerColor, trainerOpponent]);
 
   // When piece is selected, use evaluations from general analysis
   // (Don't do piece-specific analysis since getValidMovesForBoard doesn't check for check/pins)
@@ -681,6 +693,12 @@ export default function ChessApp() {
 
   const evaluateAllMoves = async () => {
     if (!stockfishRef.current) return;
+    
+    // CRITICAL: Don't interrupt AI move calculation
+    if (waitingForAIMove.current || aiMoveQueuedRef.current) {
+      console.log('⏭️ evaluateAllMoves aborted - AI is calculating');
+      return;
+    }
     
     console.log(`🎯 evaluateAllMoves called - currentPlayer: ${currentPlayer}, board FEN will determine side-to-move`);
     
@@ -938,9 +956,10 @@ export default function ChessApp() {
     const opponentColor = playerColorRef.current === 'white' ? 'black' : 'white';
     console.log(`🤖 AI executing move: ${uciMove} (currentPlayer: ${currentPlayer}, gameMode: ${gameMode}, gameModeRef: ${gameModeRef.current}, currentPlayerRef: ${currentPlayerRef.current}, playerColorRef: ${playerColorRef.current})`);
     
-    // CRITICAL: Verify we're still in AI mode using REF (user might have switched modes during setTimeout)
-    if (gameModeRef.current !== 'ai') {
-      console.warn(`⚠️ ABORT: Game mode changed to ${gameModeRef.current} before AI could move (setTimeout closure had: ${gameMode})`);
+    // CRITICAL: Verify we're still in an AI game using REF (user might have switched modes during setTimeout)
+    const isAIGame = gameModeRef.current === 'ai' || (gameModeRef.current === 'trainer' && trainerOpponentRef.current === 'ai');
+    if (!isAIGame) {
+      console.warn(`⚠️ ABORT: Not in AI game mode anymore (gameModeRef: ${gameModeRef.current}, trainerOpponentRef: ${trainerOpponentRef.current})`);
       setAiThinking(false);
       waitingForAIMove.current = false;
       aiMoveQueuedRef.current = false;
@@ -1217,6 +1236,9 @@ export default function ChessApp() {
           fetchOpeningInfo(newHistory);
           return newHistory;
         });
+        
+        // Track last move for highlighting
+        setLastMove({ from: [randomMove.from[0], randomMove.from[1]], to: [toRow, toCol] });
         
         // Store board state in history for move navigation
         setBoardHistory(prev => [...prev, newBoard.map(r => [...r])]);
@@ -1735,36 +1757,91 @@ export default function ChessApp() {
   };
 
   // =========================================================================
-  // Drag and Drop Handlers
+  // Drag and Drop Handlers (using mouse events, not HTML5 Drag API)
   // =========================================================================
   
-  // Create a transparent 1x1 pixel image for invisible drag ghost
-  const transparentImage = useRef<HTMLImageElement | null>(null);
+  // Track mouse position during drag using document-level listener
   useEffect(() => {
-    const img = new Image();
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    transparentImage.current = img;
-  }, []);
+    if (!draggingPiece) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      setDragPosition({ x: e.clientX, y: e.clientY });
+    };
+    
+    const handleMouseUp = (e: MouseEvent) => {
+      // Find which square we're over
+      const boardElement = document.getElementById('chess-board');
+      if (boardElement && draggingFrom) {
+        const rect = boardElement.getBoundingClientRect();
+        const squareWidth = rect.width / 8;
+        const squareHeight = rect.height / 8;
+        
+        // Check if mouse is within board bounds
+        if (e.clientX >= rect.left && e.clientX <= rect.right &&
+            e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          const displayCol = Math.floor((e.clientX - rect.left) / squareWidth);
+          const displayRow = Math.floor((e.clientY - rect.top) / squareHeight);
+          
+          // Convert to board coordinates
+          const [toRow, toCol] = convertDisplayCoordinates(displayRow, displayCol);
+          const [fromRow, fromCol] = draggingFrom;
+          
+          // Check if this is a valid move
+          const move = validMoves.find(m => m[0] === toRow && m[1] === toCol);
+          
+          if (move) {
+            const castleType = typeof (move as any)[2] === 'string' ? (move as any)[2] : undefined;
+            const isEnPassant = (move as any)[2] === 1;
+            
+            console.log(`🎯 Drop: [${fromRow},${fromCol}] → [${toRow},${toCol}]`);
+            movePiece(fromRow, fromCol, toRow, toCol, castleType, isEnPassant);
+          }
+        }
+      }
+      
+      // Clear all drag state
+      setDraggingFrom(null);
+      setDraggingPiece(null);
+      setDragPosition(null);
+      setDragOverSquare(null);
+      setSelectedSquare(null);
+      setValidMoves([]);
+      analyzingSelectedPiece.current = false;
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'none';
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+    };
+  }, [draggingPiece, draggingFrom, validMoves]);
   
-  const handleDragStart = (e: React.DragEvent, displayRow: number, displayCol: number) => {
+  const handlePieceMouseDown = (e: React.MouseEvent, displayRow: number, displayCol: number) => {
+    // Prevent context menu on right click
+    if (e.button !== 0) return;
+    
     const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
     const piece = board[row][col];
     
     // Only allow dragging current player's pieces
     if (!piece || !isCurrentPlayerPiece(piece)) {
-      e.preventDefault();
       return;
     }
     
     // Prevent dragging during AI turn, game over, or history viewing
     if (viewingMoveIndex !== null || gameResult !== null) {
-      e.preventDefault();
       return;
     }
     if (gameMode === 'ai' && currentPlayer !== playerColor) {
-      e.preventDefault();
       return;
     }
+    
+    // Prevent default to avoid text selection during drag
+    e.preventDefault();
     
     // Calculate valid moves for this piece
     const moves = getValidMoves(row, col);
@@ -1776,80 +1853,20 @@ export default function ChessApp() {
     setValidMoves(moves);
     setDragPosition({ x: e.clientX, y: e.clientY });
     
-    // Use transparent image to hide browser's default drag ghost
-    if (e.dataTransfer && transparentImage.current) {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setDragImage(transparentImage.current, 0, 0);
-    }
-    
     console.log(`🎯 Drag started: ${piece} from [${row},${col}], ${moves.length} valid moves`);
   };
   
-  const handleDrag = (e: React.DragEvent) => {
-    // Update floating piece position during drag
-    // Note: e.clientX/Y can be 0 at the end of drag, so we check for that
-    if (e.clientX !== 0 || e.clientY !== 0) {
-      setDragPosition({ x: e.clientX, y: e.clientY });
-    }
-  };
-  
-  const handleDragOver = (e: React.DragEvent, displayRow: number, displayCol: number) => {
-    e.preventDefault(); // Required to allow drop
-    
+  // Track which square mouse is over during drag (for visual feedback)
+  const handleSquareMouseEnter = (displayRow: number, displayCol: number) => {
     if (!draggingFrom) return;
     
     const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
-    
-    // Update drag over square for visual feedback
-    if (!dragOverSquare || dragOverSquare[0] !== row || dragOverSquare[1] !== col) {
-      setDragOverSquare([row, col]);
-    }
-    
-    // Set cursor based on whether this is a valid move
-    const isValid = validMoves.some(move => move[0] === row && move[1] === col);
-    e.dataTransfer.dropEffect = isValid ? 'move' : 'none';
+    setDragOverSquare([row, col]);
   };
   
-  const handleDragLeave = () => {
-    setDragOverSquare(null);
-  };
-  
-  const handleDrop = (e: React.DragEvent, displayRow: number, displayCol: number) => {
-    e.preventDefault();
-    
+  const handleSquareMouseLeave = () => {
     if (!draggingFrom) return;
-    
-    const [toRow, toCol] = convertDisplayCoordinates(displayRow, displayCol);
-    const [fromRow, fromCol] = draggingFrom;
-    
-    // Check if this is a valid move
-    const move = validMoves.find(m => m[0] === toRow && m[1] === toCol);
-    
-    if (move) {
-      const castleType = typeof (move as any)[2] === 'string' ? (move as any)[2] : undefined;
-      const isEnPassant = (move as any)[2] === 1;
-      
-      console.log(`🎯 Drop: [${fromRow},${fromCol}] → [${toRow},${toCol}]`);
-      movePiece(fromRow, fromCol, toRow, toCol, castleType, isEnPassant);
-    }
-    
-    // Clear drag state
-    setDraggingFrom(null);
-    setDraggingPiece(null);
-    setDragPosition(null);
     setDragOverSquare(null);
-    setSelectedSquare(null);
-    setValidMoves([]);
-    analyzingSelectedPiece.current = false;
-  };
-  
-  const handleDragEnd = () => {
-    // Clean up if drag was cancelled (dropped outside board)
-    setDraggingFrom(null);
-    setDraggingPiece(null);
-    setDragPosition(null);
-    setDragOverSquare(null);
-    // Keep selection if drag was cancelled - user might want to click instead
   };
 
   const movePiece = (fromRow: number, fromCol: number, toRow: number, toCol: number, castleType?: string, isEnPassant?: boolean) => {
@@ -1907,6 +1924,9 @@ export default function ChessApp() {
     }
 
     setBoard(newBoard);
+    
+    // Track last move for highlighting
+    setLastMove({ from: [fromRow, fromCol], to: [toRow, toCol] });
     
     // Store board state in history for move navigation
     setBoardHistory(prev => [...prev, newBoard.map(r => [...r])]);
@@ -1990,6 +2010,7 @@ export default function ChessApp() {
     setRookMoved({ whiteKingSide: false, whiteQueenSide: false, blackKingSide: false, blackQueenSide: false });
     setMateInMoves(null); // Reset mate detection
     setCurrentEvaluation(0); // Reset evaluation
+    setLastMove(null); // Clear last move highlight
     // Sync refs immediately
     currentPlayerRef.current = 'white';
     boardRef.current = INITIAL_BOARD;
@@ -2099,10 +2120,16 @@ export default function ChessApp() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-8">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold text-white mb-8 text-center">Chess App with Stockfish & Lichess API</h1>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
+            {/* Logo centered above the board */}
+            <div className="flex justify-center mb-6 px-[10%]">
+              <img 
+                src="/chesstrainer-logo.png" 
+                alt="ChessTrainer+" 
+                className="w-full object-contain drop-shadow-[0_0_15px_rgba(59,130,246,0.5)] brightness-110 contrast-105"
+              />
+            </div>
             <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 shadow-2xl">
               <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                 <div className="flex gap-1">
@@ -2235,6 +2262,8 @@ export default function ChessApp() {
                           setPlayerColor('white');
                           playerColorRef.current = 'white';
                           resetGame();
+                          // If AI opponent and playing as White, AI moves after reset
+                          // (handled by useEffect when currentPlayer changes)
                         }}
                         className={`px-2 py-1 rounded font-medium transition text-xs ${
                           playerColor === 'white'
@@ -2250,6 +2279,14 @@ export default function ChessApp() {
                           setPlayerColor('black');
                           playerColorRef.current = 'black';
                           resetGame();
+                          // If AI opponent and playing as Black, trigger AI first move
+                          if (trainerOpponent === 'ai' && stockfishReady) {
+                            setTimeout(() => {
+                              console.log('🎮 Trainer: New game as Black vs AI - triggering AI first move');
+                              aiMoveQueuedRef.current = true;
+                              getStockfishMove();
+                            }, 500);
+                          }
                         }}
                         className={`px-2 py-1 rounded font-medium transition text-xs ${
                           playerColor === 'black'
@@ -2260,6 +2297,63 @@ export default function ChessApp() {
                       >
                         ⚫
                       </button>
+                      <span className="border-l border-white/30 mx-1"></span>
+                      <span className="text-white text-xs flex items-center mr-1">vs:</span>
+                      <button
+                        onClick={() => {
+                          setTrainerOpponent('human');
+                          trainerOpponentRef.current = 'human';
+                          // Clear AI flags when switching to human
+                          aiMoveQueuedRef.current = false;
+                          waitingForAIMove.current = false;
+                          setAiThinking(false);
+                        }}
+                        className={`px-2 py-1 rounded font-medium transition text-xs ${
+                          trainerOpponent === 'human'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white/20 text-white hover:bg-white/30'
+                        }`}
+                        title="Play against human"
+                      >
+                        👤
+                      </button>
+                      <button
+                        onClick={() => {
+                          setTrainerOpponent('ai');
+                          trainerOpponentRef.current = 'ai';
+                          resetGame();
+                          // If playing as Black, trigger AI first move
+                          if (playerColor === 'black' && stockfishReady) {
+                            setTimeout(() => {
+                              console.log('🎮 Trainer: Switched to AI opponent as Black - triggering AI first move');
+                              aiMoveQueuedRef.current = true;
+                              getStockfishMove();
+                            }, 500);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded font-medium transition text-xs ${
+                          trainerOpponent === 'ai'
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-white/20 text-white hover:bg-white/30'
+                        }`}
+                        title="Play against AI"
+                      >
+                        🤖
+                      </button>
+                      {trainerOpponent === 'ai' && (
+                        <select
+                          value={aiDifficulty}
+                          onChange={(e) => setAiDifficulty(e.target.value as any)}
+                          className="px-2 py-1 rounded bg-white/20 text-white border border-white/30 text-xs font-medium hover:bg-white/30 transition cursor-pointer"
+                        >
+                          <option value="beginner" className="bg-gray-800">Beginner</option>
+                          <option value="easy" className="bg-gray-800">Easy</option>
+                          <option value="medium" className="bg-gray-800">Medium</option>
+                          <option value="hard" className="bg-gray-800">Hard</option>
+                          <option value="expert" className="bg-gray-800">Expert</option>
+                          <option value="master" className="bg-gray-800">Master</option>
+                        </select>
+                      )}
                       <span className="border-l border-white/30 mx-1"></span>
                       <button
                         onClick={() => setShowMoveHints(!showMoveHints)}
@@ -2315,7 +2409,7 @@ export default function ChessApp() {
                 )}
 
                 {/* Chessboard */}
-                <div className="aspect-square bg-amber-100 rounded-lg shadow-inner flex-1">
+                <div id="chess-board" className={`aspect-square bg-amber-100 rounded-lg shadow-inner flex-1 ${draggingPiece ? 'cursor-none' : ''}`}>
                   <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
                     {getDisplayBoard().map((row, displayRowIndex) => (
                       row.map((piece, displayColIndex) => {
@@ -2328,6 +2422,11 @@ export default function ChessApp() {
                         const moveQuality = selectedSquare ? getMoveQualityColor(selectedSquare[0], selectedSquare[1], boardRowIndex, boardColIndex) : '';
                         const isDragOver = dragOverSquare?.[0] === boardRowIndex && dragOverSquare?.[1] === boardColIndex;
                         const isDragging = draggingFrom?.[0] === boardRowIndex && draggingFrom?.[1] === boardColIndex;
+                        
+                        // Check if this square is part of the last move
+                        const isLastMoveFrom = lastMove?.from[0] === boardRowIndex && lastMove?.from[1] === boardColIndex;
+                        const isLastMoveTo = lastMove?.to[0] === boardRowIndex && lastMove?.to[1] === boardColIndex;
+                        const isLastMoveSquare = isLastMoveFrom || isLastMoveTo;
                         
                         // Check if this square has a king in check
                         const isKing = piece && piece.toLowerCase() === 'k';
@@ -2352,25 +2451,28 @@ export default function ChessApp() {
                         : isDragOver && !isValidMove 
                           ? 'ring-4 ring-inset ring-red-400' 
                           : '';
+                      
+                      // Last move highlight - yellow/gold tint
+                      const lastMoveHighlight = isLastMoveSquare && !isSelected ? (isLight ? 'bg-yellow-300' : 'bg-yellow-500') : '';
+                      
+                      // Base square color (use last move highlight if applicable, otherwise default)
+                      const squareColor = lastMoveHighlight || (isLight ? 'bg-amber-200' : 'bg-amber-700');
 
                       return (
                         <div 
                           key={`${displayRowIndex}-${displayColIndex}`} 
                           onClick={() => handleSquareClick(displayRowIndex, displayColIndex)}
-                          onDragOver={(e) => handleDragOver(e, displayRowIndex, displayColIndex)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, displayRowIndex, displayColIndex)}
-                          className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality && !dragHighlight ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} ${dragHighlight} hover:brightness-110`}
+                          onMouseEnter={() => handleSquareMouseEnter(displayRowIndex, displayColIndex)}
+                          onMouseLeave={handleSquareMouseLeave}
+                          className={`flex items-center justify-center transition-all select-none relative ${draggingPiece ? 'cursor-none' : 'cursor-pointer'} ${squareColor} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality && !dragHighlight ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} ${dragHighlight} hover:brightness-110`}
                         >
                           {piece && (
                             <img 
                               src={PIECE_IMAGES[piece]} 
                               alt={PIECES[piece]}
-                              className={`w-[70%] h-[70%] object-contain ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'} ${isDragging ? 'opacity-0' : ''}`}
-                              draggable={canDrag}
-                              onDragStart={(e) => handleDragStart(e, displayRowIndex, displayColIndex)}
-                              onDrag={handleDrag}
-                              onDragEnd={handleDragEnd}
+                              className={`w-[70%] h-[70%] object-contain ${draggingPiece ? 'cursor-none' : canDrag ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'} ${isDragging ? 'opacity-0' : ''}`}
+                              draggable={false}
+                              onMouseDown={(e) => handlePieceMouseDown(e, displayRowIndex, displayColIndex)}
                             />
                           )}
                         </div>
@@ -2380,47 +2482,67 @@ export default function ChessApp() {
                 </div>
               </div>
               
-              {/* Floating piece that follows cursor during drag */}
-              {draggingPiece && dragPosition && (
+              {/* Floating piece that follows cursor during drag - rendered via portal to avoid transform issues */}
+              {draggingPiece && dragPosition && typeof document !== 'undefined' && createPortal(
                 <img
                   src={PIECE_IMAGES[draggingPiece]}
                   alt="Dragging piece"
-                  className="fixed pointer-events-none z-50 w-16 h-16 object-contain"
                   style={{
+                    position: 'fixed',
                     left: dragPosition.x - 32,
                     top: dragPosition.y - 32,
+                    width: 64,
+                    height: 64,
+                    pointerEvents: 'none',
+                    zIndex: 9999,
+                    objectFit: 'contain',
                   }}
-                />
+                />,
+                document.body
               )}
               </div>
 
               <div className="mt-4 text-white text-center">
                 <p className="text-lg font-semibold">
-                  {gameResult ? (
-                    gameResult === '1/2-1/2' ? 'Draw - Stalemate' : 
-                    gameResult === '1-0' ? '⚪ White won' : '⚫ Black won'
-                  ) : aiThinking ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <Cpu className="animate-spin" size={20} />
-                      AI is thinking... ({aiDifficulty})
-                    </span>
-                  ) : (
-                    `Current Turn: ${currentPlayer === 'white' ? '⚪ White' : '⚫ Black'}`
-                  )}
+                  {(() => {
+                    if (gameResult) {
+                      return gameResult === '1/2-1/2' ? 'Draw - Stalemate' : 
+                             gameResult === '1-0' ? '⚪ White won' : '⚫ Black won';
+                    }
+                    
+                    const turnText = `Current Turn: ${currentPlayer === 'white' ? '⚪ White' : '⚫ Black'}`;
+                    const isAIGame = gameMode === 'ai' || (gameMode === 'trainer' && trainerOpponent === 'ai');
+                    const opponentColor = playerColor === 'white' ? 'black' : 'white';
+                    const isAITurn = isAIGame && currentPlayer === opponentColor;
+                    
+                    return (
+                      <span className="flex items-center justify-center gap-2">
+                        {turnText}
+                        {isAITurn && (
+                          <>
+                            <span className="text-white/50">•</span>
+                            <Cpu className="animate-spin" size={18} />
+                            <span className="text-yellow-300">AI thinking...</span>
+                          </>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </p>
                 {/* New Game button appears after game ends */}
-                {gameResult && (gameMode === 'human' || gameMode === 'ai') && (
+                {gameResult && (gameMode === 'human' || gameMode === 'ai' || gameMode === 'trainer') && (
                   <button
                     onClick={() => {
                       // Clear AI flags before reset
-                      if (gameMode === 'ai') {
+                      const isAIGame = gameMode === 'ai' || (gameMode === 'trainer' && trainerOpponent === 'ai');
+                      if (isAIGame) {
                         aiMoveQueuedRef.current = false;
                         waitingForAIMove.current = false;
                         setAiThinking(false);
                       }
                       resetGame();
-                      // If playing as Black in AI mode, trigger AI first move
-                      if (gameMode === 'ai' && playerColor === 'black') {
+                      // If playing as Black in AI mode (or trainer with AI), trigger AI first move
+                      if (isAIGame && playerColor === 'black') {
                         setTimeout(() => {
                           if (stockfishReady) {
                             console.log('🎮 New game as Black - triggering AI first move');
@@ -2435,7 +2557,8 @@ export default function ChessApp() {
                     🔄 New Game
                   </button>
                 )}
-                {stockfishReady && gameMode === 'ai' && !aiThinking && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Ready ({aiDifficulty})</p>)}
+                {stockfishReady && gameMode === 'ai' && currentPlayer === playerColor && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />Stockfish Ready ({aiDifficulty})</p>)}
+                {stockfishReady && gameMode === 'trainer' && trainerOpponent === 'ai' && currentPlayer === playerColor && (<p className="text-sm text-green-400 mt-1"><Cpu className="inline mr-1" size={14} />AI Opponent Ready ({aiDifficulty})</p>)}
                 {gameMode === 'trainer' && (
                   <div className="mt-3 text-sm">
                     <p className="font-semibold mb-2 text-base">Move Quality Legend:</p>

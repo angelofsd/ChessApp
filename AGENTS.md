@@ -216,13 +216,16 @@ it('detects back rank mate', () => {
 - `validMoves: Array<Array<number | string>>` - Legal moves for selected piece
 - `currentPlayer: 'white' | 'black'` - Whose turn it is
 - `moveHistory: string[]` - List of moves in algebraic notation
-- `gameMode: 'human' | 'ai'` - Current game mode
+- `gameMode: 'human' | 'ai' | 'trainer'` - Current game mode
 - `stockfishReady: boolean` - Engine status
 - `openingInfo: any` - Data from Lichess API
 - `kingMoved, rookMoved` - Castling rights tracking
 - `playerColor: 'white' | 'black'` - Human player's color in AI mode
+- `trainerOpponent: 'human' | 'ai'` - Opponent type in Trainer mode
 - `showEvalBar: boolean` - Whether to show the evaluation bar
 - `mateInMoves: number | null` - Detected mate-in-X (null if no mate)
+- `lastMove: { from: [number, number]; to: [number, number] } | null` - Last move for highlighting
+- `draggingFrom, draggingPiece, dragPosition` - Drag and drop state
 
 **Key Functions:**
 
@@ -319,6 +322,9 @@ isSquareUnderAttack(boardState: Board, row: number, col: number, attackingColor:
      - Negative values = Black advantage (black area grows from top)
      - Values stay consistent regardless of whose turn it is
      - **Mate-in-X Display**: Shows "M2", "M3", etc. when checkmate is detected
+   - **AI Opponent Option**: Play against AI while seeing move hints
+     - Toggle between Human (👤) and AI (🤖) opponent
+     - All difficulty levels available with hints enabled
 
 5. **UI Features**
    - Visual piece selection (blue ring)
@@ -329,6 +335,9 @@ isSquareUnderAttack(boardState: Board, row: number, col: number, attackingColor:
    - Top 3 moves display with evaluations
    - King highlight when in check (red background)
    - AI thinking indicator with spinner
+   - **Last move highlighting** (yellow squares for from/to)
+   - **Drag and drop** piece movement
+   - **Custom ChessTrainer+ logo**
 
 6. **API Integration**
    - Lichess Opening Explorer with error handling
