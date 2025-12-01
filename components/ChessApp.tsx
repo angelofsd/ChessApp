@@ -3,61 +3,43 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RotateCcw, Cpu, Database, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { 
+  Board, 
+  Color, 
+  GameMode, 
+  AIDifficulty,
+  PIECE_IMAGES, 
+  PIECE_SYMBOLS, 
+  INITIAL_BOARD,
+  FILES,
+  AI_DIFFICULTY_SETTINGS,
+  MOVE_QUALITY_THRESHOLDS,
+  STOCKFISH_SETTINGS
+} from '../lib/constants';
 
-type Board = string[][];
-
-// Using SVG chess pieces from Wikipedia Commons (public domain)
-const PIECE_IMAGES: Record<string, string> = {
-  K: 'https://upload.wikimedia.org/wikipedia/commons/4/42/Chess_klt45.svg',
-  Q: 'https://upload.wikimedia.org/wikipedia/commons/1/15/Chess_qlt45.svg',
-  R: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Chess_rlt45.svg',
-  B: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Chess_blt45.svg',
-  N: 'https://upload.wikimedia.org/wikipedia/commons/7/70/Chess_nlt45.svg',
-  P: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Chess_plt45.svg',
-  k: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/Chess_kdt45.svg',
-  q: 'https://upload.wikimedia.org/wikipedia/commons/4/47/Chess_qdt45.svg',
-  r: 'https://upload.wikimedia.org/wikipedia/commons/f/ff/Chess_rdt45.svg',
-  b: 'https://upload.wikimedia.org/wikipedia/commons/9/98/Chess_bdt45.svg',
-  n: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Chess_ndt45.svg',
-  p: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Chess_pdt45.svg'
-};
-
-const PIECES: Record<string, string> = {
-  K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
-  k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟︎'
-};
-
-const INITIAL_BOARD: Board = [
-  ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
-  ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
-  ['', '', '', '', '', '', '', ''],
-  ['', '', '', '', '', '', '', ''],
-  ['', '', '', '', '', '', '', ''],
-  ['', '', '', '', '', '', '', ''],
-  ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
-  ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
-];
+// Re-export PIECES for backward compatibility with move history display
+const PIECES = PIECE_SYMBOLS;
 
 export default function ChessApp() {
   const [board, setBoard] = useState<Board>(INITIAL_BOARD);
   const [selectedSquare, setSelectedSquare] = useState<[number, number] | null>(null);
   const [validMoves, setValidMoves] = useState<Array<Array<number | string>>>([]);
-  const [currentPlayer, setCurrentPlayer] = useState<'white' | 'black'>('white');
+  const [currentPlayer, setCurrentPlayer] = useState<Color>('white');
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [boardHistory, setBoardHistory] = useState<Board[]>([INITIAL_BOARD]); // Store board state after each move
   const [viewingMoveIndex, setViewingMoveIndex] = useState<number | null>(null); // null = viewing current position, number = viewing historical position
   const [gameResult, setGameResult] = useState<string | null>(null); // '1-0', '0-1', '1/2-1/2', or null
-  const [gameMode, setGameMode] = useState<'human' | 'ai' | 'trainer'>('human');
-  const [aiDifficulty, setAiDifficulty] = useState<'beginner' | 'easy' | 'medium' | 'hard' | 'expert' | 'master'>('medium');
+  const [gameMode, setGameMode] = useState<GameMode>('human');
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('medium');
   const [aiThinking, setAiThinking] = useState(false);
   const [stockfishReady, setStockfishReady] = useState(false);
-  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white'); // Player's chosen color in AI mode
+  const [playerColor, setPlayerColor] = useState<Color>('white'); // Player's chosen color in AI mode
   
   // Initialize refs with current state to avoid closure issues in setTimeout callbacks
-  const gameModeRef = useRef<'human' | 'ai' | 'trainer'>(gameMode);
-  const currentPlayerRef = useRef<'white' | 'black'>(currentPlayer);
+  const gameModeRef = useRef<GameMode>(gameMode);
+  const currentPlayerRef = useRef<Color>(currentPlayer);
   const boardRef = useRef<Board>(board);
-  const playerColorRef = useRef<'white' | 'black'>(playerColor);
+  const playerColorRef = useRef<Color>(playerColor);
   const [moveEvaluations, setMoveEvaluations] = useState<Record<string, number>>({});
   const [bestMoveEval, setBestMoveEval] = useState<number | null>(null); // Store the absolute best move evaluation
   const [currentEvaluation, setCurrentEvaluation] = useState<number>(0); // Current position evaluation in centipawns
@@ -609,10 +591,9 @@ export default function ChessApp() {
   useEffect(() => {
     if (gameMode === 'trainer' && stockfishReady && selectedSquare && topMoves.length > 0) {
       // Color code the valid moves based on topMoves from general analysis
-      const files = 'abcdefgh';
       const fromRow = selectedSquare[0];
       const fromCol = selectedSquare[1];
-      const fromSquareUCI = `${files[fromCol]}${8-fromRow}`;
+      const fromSquareUCI = `${FILES[fromCol]}${8-fromRow}`;
       
       // Filter topMoves to only those starting from this square
       const newEvals: Record<string, number> = {};
@@ -650,7 +631,6 @@ export default function ChessApp() {
       return;
     }
     
-    const files = 'abcdefgh';
     const fromRow = selectedSquare[0];
     const fromCol = selectedSquare[1];
     
@@ -680,7 +660,7 @@ export default function ChessApp() {
     
     // Build a search moves string with all legal moves for this piece
     const movesStr = legalMoves
-      .map(move => `${files[fromCol]}${8-fromRow}${files[move[1] as number]}${8-(move[0] as number)}`)
+      .map(move => `${FILES[fromCol]}${8-fromRow}${FILES[move[1] as number]}${8-(move[0] as number)}`)
       .join(' ');
     
     console.log(`🔍 Analyzing ${numMoves} legal moves for selected piece:`, movesStr);
@@ -786,8 +766,7 @@ export default function ChessApp() {
     let epSquare = '-';
     if (enPassantTarget) {
       const [epRow, epCol] = enPassantTarget;
-      const files = 'abcdefgh';
-      epSquare = `${files[epCol]}${8 - epRow}`;
+      epSquare = `${FILES[epCol]}${8 - epRow}`;
     }
 
     fen += ` ${currentPlayer === 'white' ? 'w' : 'b'} ${castling} ${epSquare} 0 1`;
@@ -1225,8 +1204,7 @@ export default function ChessApp() {
           }
         }
 
-        const files = 'abcdefgh';
-        const move = `${files[randomMove.from[1]]}${8 - randomMove.from[0]}${files[toCol]}${8 - toRow}`;
+        const move = `${FILES[randomMove.from[1]]}${8 - randomMove.from[0]}${FILES[toCol]}${8 - toRow}`;
         setMoveHistory(prev => {
           const newHistory = [...prev, move];
           fetchOpeningInfo(newHistory);
@@ -1686,8 +1664,7 @@ export default function ChessApp() {
   const getMoveQualityColor = (fromRow: number, fromCol: number, toRow: number, toCol: number): string => {
     if (gameMode !== 'trainer' || !showMoveHints) return '';
     
-    const files = 'abcdefgh';
-    const moveStr = `${files[fromCol]}${8-fromRow}${files[toCol]}${8-toRow}`;
+    const moveStr = `${FILES[fromCol]}${8-fromRow}${FILES[toCol]}${8-toRow}`;
     const cpLoss = moveEvaluations[moveStr];
     
     // If move not analyzed by Stockfish, don't show any border (keeps board clean)
@@ -1695,10 +1672,10 @@ export default function ChessApp() {
     
     // Color coding based on centipawn loss (thicker borders, more distinct colors)
     if (cpLoss === 0) return 'ring-[6px] ring-green-600'; // Best move - dark green
-    if (cpLoss < 25) return 'ring-[6px] ring-emerald-400'; // Excellent - bright emerald
-    if (cpLoss < 50) return 'ring-[6px] ring-lime-400'; // Good
-    if (cpLoss < 100) return 'ring-[6px] ring-yellow-400'; // Okay
-    if (cpLoss < 200) return 'ring-[6px] ring-orange-400'; // Dubious
+    if (cpLoss < MOVE_QUALITY_THRESHOLDS.EXCELLENT) return 'ring-[6px] ring-emerald-400'; // Excellent
+    if (cpLoss < MOVE_QUALITY_THRESHOLDS.GOOD) return 'ring-[6px] ring-lime-400'; // Good
+    if (cpLoss < MOVE_QUALITY_THRESHOLDS.OKAY) return 'ring-[6px] ring-yellow-400'; // Okay
+    if (cpLoss < MOVE_QUALITY_THRESHOLDS.DUBIOUS) return 'ring-[6px] ring-orange-400'; // Dubious
     return 'ring-[6px] ring-red-400'; // Bad (200+ centipawns worse)
   };
 
@@ -1837,8 +1814,7 @@ export default function ChessApp() {
       }
     }
 
-    const files = 'abcdefgh';
-    let move = `${files[fromCol]}${8 - fromRow}${files[toCol]}${8 - toRow}`;
+    let move = `${FILES[fromCol]}${8 - fromRow}${FILES[toCol]}${8 - toRow}`;
     
     // Add promotion suffix if pawn reached last rank
     if (pieceType === 'p') {
