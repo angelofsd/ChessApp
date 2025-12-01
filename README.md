@@ -192,7 +192,7 @@ npm start
 - [ ] Move analysis and post-game review
 - [ ] Puzzle mode
 - [x] Unit tests for chess logic ✅
-- [ ] CI/CD integration
+- [x] CI/CD integration
 
 ## Testing
 
@@ -218,6 +218,46 @@ The test suite includes 111 tests covering:
 - **Move Generation** (31 tests): All piece movements, pinned pieces, check evasion
 - **Special Moves** (20 tests): Castling (all restrictions), en passant, pawn promotion
 - **FEN Notation** (13 tests): Parsing, generation, round-trip validation
+
+## CI/CD
+
+This project uses **GitHub Actions** for continuous integration. Every push and pull request to `main` triggers:
+
+1. **Install dependencies**: Uses npm ci for reproducible installs
+2. **Run tests**: Executes the full Jest test suite (111 tests)
+3. **Build**: Verifies the Next.js application builds successfully
+
+### Workflow Status
+
+The CI workflow runs automatically on:
+- Every push to `main` branch
+- Every pull request targeting `main`
+
+### Configuration
+
+The workflow is defined in `.github/workflows/ci.yml`:
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+```
 
 ## Contributing
 

@@ -282,15 +282,20 @@ export default function ChessApp() {
           const bestEval = filtered[0].eval;
           
           // Store centipawn loss for each move (for color coding)
+          // For White: higher eval is better, so cpLoss = bestEval - moveEval
+          // For Black: lower (more negative) eval is better, so cpLoss = moveEval - bestEval
+          const isBlackToMove = sideToMove === 'black';
           const evaluations: Record<string, number> = {};
           filtered.forEach(m => {
-            // Loss is how much worse the move is (positive = worse, negative = better which shouldn't happen)
-            const loss = bestEval - m.eval;
+            // Calculate loss correctly based on whose turn it is
+            const loss = isBlackToMove 
+              ? m.eval - bestEval  // Black: higher eval = worse for Black
+              : bestEval - m.eval; // White: lower eval = worse for White
             evaluations[m.move] = loss;
           });
           
           setMoveEvaluations(evaluations);
-          console.log('📋 Centipawn losses:', evaluations);
+          console.log(`📋 Centipawn losses (${sideToMove} to move):`, evaluations);
         }
         
         return filtered;
@@ -613,17 +618,27 @@ export default function ChessApp() {
       const newEvals: Record<string, number> = {};
       const bestEval = topMoves[0]?.eval || 0;
       
+      // Determine who is to move - evaluations are stored from White's perspective
+      // For White: higher eval is better, so cpLoss = bestEval - moveEval
+      // For Black: lower (more negative) eval is better, so cpLoss = moveEval - bestEval
+      const isBlackToMove = currentPlayer === 'black';
+      
       topMoves.forEach(move => {
         if (move.move.startsWith(fromSquareUCI)) {
-          const cpLoss = bestEval - move.eval;
+          // Calculate centipawn loss correctly based on whose turn it is
+          // For White: best is highest, so loss = best - this move (positive if worse)
+          // For Black: best is lowest (most negative), so loss = this move - best (positive if worse)
+          const cpLoss = isBlackToMove 
+            ? move.eval - bestEval  // Black: higher eval = worse for Black
+            : bestEval - move.eval; // White: lower eval = worse for White
           newEvals[move.move] = cpLoss;
         }
       });
       
       setMoveEvaluations(newEvals);
-      console.log(`🎨 Color-coding ${Object.keys(newEvals).length} moves from ${fromSquareUCI}:`, newEvals);
+      console.log(`🎨 Color-coding ${Object.keys(newEvals).length} moves from ${fromSquareUCI} (${currentPlayer} to move):`, newEvals);
     }
-  }, [selectedSquare, topMoves, gameMode, stockfishReady]);
+  }, [selectedSquare, topMoves, gameMode, stockfishReady, currentPlayer]);
 
   const evaluateSelectedPieceMoves = async () => {
     // CRITICAL: Wait for general analysis to complete first
@@ -1894,7 +1909,7 @@ export default function ChessApp() {
       displayBoard = board;
     }
     
-    if (gameMode === 'ai' && playerColor === 'black') {
+    if ((gameMode === 'ai' || gameMode === 'trainer') && playerColor === 'black') {
       // Flip the board for Black's perspective
       return displayBoard.map(row => [...row]).reverse().map(row => row.reverse());
     }
@@ -1903,7 +1918,7 @@ export default function ChessApp() {
 
   // Convert display coordinates back to board coordinates if player is Black
   const convertDisplayCoordinates = (displayRow: number, displayCol: number): [number, number] => {
-    if (gameMode === 'ai' && playerColor === 'black') {
+    if ((gameMode === 'ai' || gameMode === 'trainer') && playerColor === 'black') {
       return [7 - displayRow, 7 - displayCol];
     }
     return [displayRow, displayCol];
@@ -2113,6 +2128,38 @@ export default function ChessApp() {
                 <div className="flex gap-1">
                   {gameMode === 'trainer' && (
                     <>
+                      <span className="text-white text-xs flex items-center mr-1">Play:</span>
+                      <button
+                        onClick={() => {
+                          setPlayerColor('white');
+                          playerColorRef.current = 'white';
+                          resetGame();
+                        }}
+                        className={`px-2 py-1 rounded font-medium transition text-xs ${
+                          playerColor === 'white'
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'bg-white/20 text-white hover:bg-white/30'
+                        }`}
+                        title="Play as White"
+                      >
+                        ⚪
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPlayerColor('black');
+                          playerColorRef.current = 'black';
+                          resetGame();
+                        }}
+                        className={`px-2 py-1 rounded font-medium transition text-xs ${
+                          playerColor === 'black'
+                            ? 'bg-gray-700 text-white'
+                            : 'bg-white/20 text-white hover:bg-white/30'
+                        }`}
+                        title="Play as Black"
+                      >
+                        ⚫
+                      </button>
+                      <span className="border-l border-white/30 mx-1"></span>
                       <button
                         onClick={() => setShowMoveHints(!showMoveHints)}
                         className={`px-2 py-1.5 rounded font-medium transition text-xs ${
@@ -2174,7 +2221,7 @@ export default function ChessApp() {
                           : displayEval;
                         
                         // Flip colors when playing as Black (Black on bottom, White on top)
-                        const isPlayingBlack = gameMode === 'ai' && playerColor === 'black';
+                        const isPlayingBlack = (gameMode === 'ai' || gameMode === 'trainer') && playerColor === 'black';
                         
                         // Calculate heights - positive eval = White better, negative = Black better
                         // When playing White: White on bottom (grows with positive eval)

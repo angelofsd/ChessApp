@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.8.1] - 2025-12-01
+
+### Added
+- **CI/CD Pipeline** 🚀
+  - GitHub Actions workflow for automatic testing
+  - Runs on every push and pull request to `main`
+  - Executes full test suite (111 tests) and build verification
+
+- **Trainer Mode: Play as Black** ⚫
+  - Added color selection buttons (⚪/⚫) to Move Trainer mode
+  - Board flips automatically when playing as Black
+  - Evaluation bar adjusts perspective correctly
+
+### Fixed
+- **Move Quality Colors for Black** 🎨
+  - Fixed incorrect color coding when Black is to move
+  - Centipawn loss now calculated correctly for both sides
+  - Moves are properly evaluated relative to best move for current player
+
 ## [0.8.0] - 2025-11-30
 
 ### Added

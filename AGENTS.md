@@ -595,6 +595,29 @@ if (isKingInCheck(testBoard, opponentColor)) {
 - Verify castling conditions
 - Test edge cases (board boundaries, captures)
 - Validate FEN conversion accuracy
+- Run `npm test` before committing changes
+
+### CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration:
+
+**Workflow location**: `.github/workflows/ci.yml`
+
+**Triggers**:
+- Push to `main` branch
+- Pull requests targeting `main`
+
+**Pipeline steps**:
+1. Checkout code
+2. Setup Node.js 18 with npm cache
+3. Install dependencies (`npm ci`)
+4. Run tests (`npm test`) - 111 unit tests
+5. Build application (`npm run build`)
+
+**Before merging**:
+- All tests must pass
+- Build must succeed
+- Check the Actions tab on GitHub for status
 
 ## Common Tasks
 
