@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Draw by repetition and 50-move rule
 - Pawn promotion choice UI (currently auto-promotes to Queen)
 
+## [0.9.0] - 2025-12-01
+
+### Added
+- **Drag and Drop** 🎯
+  - Click and drag pieces to move them
+  - Visual feedback during drag (piece becomes semi-transparent)
+  - Green highlight on valid drop targets
+  - Red highlight on invalid drop targets
+  - Click-to-move still works alongside drag-and-drop
+  - Respects all game rules (turn order, check, game over)
+
+- **Code Refactoring** 🏗️
+  - Extracted `lib/constants.ts` with centralized types and constants
+  - Extracted `EvaluationBar` component (91 lines)
+  - Added reusable types: `Board`, `Color`, `GameMode`, `AIDifficulty`
+  - Added `AI_DIFFICULTY_SETTINGS` and `MOVE_QUALITY_THRESHOLDS` constants
+
 ## [0.8.1] - 2025-12-01
 
 ### Added

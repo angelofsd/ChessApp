@@ -20,6 +20,10 @@ A modern chess application with multiple training modes, AI opponent, and openin
   - Moves outside top 20 marked as blunders
   - **Evaluation bar showing position strength from White's perspective**
   - **Mate-in-X display**: Shows M2, M3, etc. when checkmate is forced
+- **Intuitive Controls**:
+  - **Drag and drop**: Click and drag pieces to move them
+  - **Click to move**: Click a piece, then click the destination square
+  - Both methods work - use whichever you prefer!
 - **Move History Navigation**:
   - Back/forward buttons to review the game
   - Click any move to jump to that position

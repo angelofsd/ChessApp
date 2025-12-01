@@ -36,6 +36,10 @@ export default function ChessApp() {
   const [stockfishReady, setStockfishReady] = useState(false);
   const [playerColor, setPlayerColor] = useState<Color>('white'); // Player's chosen color in AI mode
   
+  // Drag and drop state
+  const [draggingFrom, setDraggingFrom] = useState<[number, number] | null>(null);
+  const [dragOverSquare, setDragOverSquare] = useState<[number, number] | null>(null);
+  
   // Initialize refs with current state to avoid closure issues in setTimeout callbacks
   const gameModeRef = useRef<GameMode>(gameMode);
   const currentPlayerRef = useRef<Color>(currentPlayer);
@@ -1728,6 +1732,105 @@ export default function ChessApp() {
     }
   };
 
+  // =========================================================================
+  // Drag and Drop Handlers
+  // =========================================================================
+  
+  const handleDragStart = (e: React.DragEvent, displayRow: number, displayCol: number) => {
+    const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
+    const piece = board[row][col];
+    
+    // Only allow dragging current player's pieces
+    if (!piece || !isCurrentPlayerPiece(piece)) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Prevent dragging during AI turn, game over, or history viewing
+    if (viewingMoveIndex !== null || gameResult !== null) {
+      e.preventDefault();
+      return;
+    }
+    if (gameMode === 'ai' && currentPlayer !== playerColor) {
+      e.preventDefault();
+      return;
+    }
+    
+    // Calculate valid moves for this piece
+    const moves = getValidMoves(row, col);
+    
+    // Set drag state
+    setDraggingFrom([row, col]);
+    setSelectedSquare([row, col]);
+    setValidMoves(moves);
+    
+    // Set drag image (optional - use the piece image)
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      // Set transparent drag image (we'll show the piece visually differently)
+      const img = new Image();
+      img.src = PIECE_IMAGES[piece];
+      e.dataTransfer.setDragImage(img, 35, 35);
+    }
+    
+    console.log(`🎯 Drag started: ${piece} from [${row},${col}], ${moves.length} valid moves`);
+  };
+  
+  const handleDragOver = (e: React.DragEvent, displayRow: number, displayCol: number) => {
+    e.preventDefault(); // Required to allow drop
+    
+    if (!draggingFrom) return;
+    
+    const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
+    
+    // Update drag over square for visual feedback
+    if (!dragOverSquare || dragOverSquare[0] !== row || dragOverSquare[1] !== col) {
+      setDragOverSquare([row, col]);
+    }
+    
+    // Set cursor based on whether this is a valid move
+    const isValid = validMoves.some(move => move[0] === row && move[1] === col);
+    e.dataTransfer.dropEffect = isValid ? 'move' : 'none';
+  };
+  
+  const handleDragLeave = () => {
+    setDragOverSquare(null);
+  };
+  
+  const handleDrop = (e: React.DragEvent, displayRow: number, displayCol: number) => {
+    e.preventDefault();
+    
+    if (!draggingFrom) return;
+    
+    const [toRow, toCol] = convertDisplayCoordinates(displayRow, displayCol);
+    const [fromRow, fromCol] = draggingFrom;
+    
+    // Check if this is a valid move
+    const move = validMoves.find(m => m[0] === toRow && m[1] === toCol);
+    
+    if (move) {
+      const castleType = typeof (move as any)[2] === 'string' ? (move as any)[2] : undefined;
+      const isEnPassant = (move as any)[2] === 1;
+      
+      console.log(`🎯 Drop: [${fromRow},${fromCol}] → [${toRow},${toCol}]`);
+      movePiece(fromRow, fromCol, toRow, toCol, castleType, isEnPassant);
+    }
+    
+    // Clear drag state
+    setDraggingFrom(null);
+    setDragOverSquare(null);
+    setSelectedSquare(null);
+    setValidMoves([]);
+    analyzingSelectedPiece.current = false;
+  };
+  
+  const handleDragEnd = () => {
+    // Clean up if drag was cancelled (dropped outside board)
+    setDraggingFrom(null);
+    setDragOverSquare(null);
+    // Keep selection if drag was cancelled - user might want to click instead
+  };
+
   const movePiece = (fromRow: number, fromCol: number, toRow: number, toCol: number, castleType?: string, isEnPassant?: boolean) => {
     console.log(`🎯 movePiece called: [${fromRow},${fromCol}] → [${toRow},${toCol}], castleType: ${castleType}, enPassant: ${isEnPassant}`);
     
@@ -2202,26 +2305,50 @@ export default function ChessApp() {
                         const isSelected = selectedSquare?.[0] === boardRowIndex && selectedSquare?.[1] === boardColIndex;
                         const isValidMove = validMoves.some(move => move[0] === boardRowIndex && move[1] === boardColIndex);
                         const moveQuality = selectedSquare ? getMoveQualityColor(selectedSquare[0], selectedSquare[1], boardRowIndex, boardColIndex) : '';
+                        const isDragOver = dragOverSquare?.[0] === boardRowIndex && dragOverSquare?.[1] === boardColIndex;
+                        const isDragging = draggingFrom?.[0] === boardRowIndex && draggingFrom?.[1] === boardColIndex;
                         
                         // Check if this square has a king in check
                         const isKing = piece && piece.toLowerCase() === 'k';
                         const kingColor = piece === 'K' ? 'white' : piece === 'k' ? 'black' : null;
                         const kingInCheck = isKing && kingColor && isKingInCheck(board, kingColor);
+                        
+                        // Check if piece is draggable (current player's piece and it's their turn)
+                        const canDrag = piece && isCurrentPlayerPiece(piece) && 
+                          viewingMoveIndex === null && 
+                          gameResult === null &&
+                          !(gameMode === 'ai' && currentPlayer !== playerColor);
                       
                       // In trainer mode with hints: show quality colors or red for non-top-20
                       // In other modes: simple white rings
                       const validMoveRing = gameMode === 'trainer' && moveQuality === '' 
                         ? 'ring-[6px] ring-inset ring-red-400' 
                         : 'ring-4 ring-inset ring-white';
+                      
+                      // Highlight valid drop targets during drag
+                      const dragHighlight = isDragOver && isValidMove 
+                        ? 'ring-4 ring-inset ring-green-400 brightness-110' 
+                        : isDragOver && !isValidMove 
+                          ? 'ring-4 ring-inset ring-red-400' 
+                          : '';
 
                       return (
-                        <div key={`${displayRowIndex}-${displayColIndex}`} onClick={() => handleSquareClick(displayRowIndex, displayColIndex)} className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} hover:brightness-110`}>
+                        <div 
+                          key={`${displayRowIndex}-${displayColIndex}`} 
+                          onClick={() => handleSquareClick(displayRowIndex, displayColIndex)}
+                          onDragOver={(e) => handleDragOver(e, displayRowIndex, displayColIndex)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, displayRowIndex, displayColIndex)}
+                          className={`flex items-center justify-center cursor-pointer transition-all select-none relative ${isLight ? 'bg-amber-200' : 'bg-amber-700'} ${isSelected ? 'ring-4 ring-inset ring-blue-400' : ''} ${kingInCheck ? 'ring-[6px] ring-inset ring-red-600 animate-pulse' : ''} ${isValidMove && !moveQuality && !dragHighlight ? validMoveRing : ''} ${moveQuality ? `ring-inset ${moveQuality}` : ''} ${dragHighlight} hover:brightness-110`}
+                        >
                           {piece && (
                             <img 
                               src={PIECE_IMAGES[piece]} 
                               alt={PIECES[piece]}
-                              className="pointer-events-none w-[70%] h-[70%] object-contain"
-                              draggable={false}
+                              className={`w-[70%] h-[70%] object-contain ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'} ${isDragging ? 'opacity-50' : ''}`}
+                              draggable={canDrag}
+                              onDragStart={(e) => handleDragStart(e, displayRowIndex, displayColIndex)}
+                              onDragEnd={handleDragEnd}
                             />
                           )}
                         </div>
