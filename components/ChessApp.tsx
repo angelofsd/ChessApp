@@ -39,6 +39,8 @@ export default function ChessApp() {
   // Drag and drop state
   const [draggingFrom, setDraggingFrom] = useState<[number, number] | null>(null);
   const [dragOverSquare, setDragOverSquare] = useState<[number, number] | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const [draggingPiece, setDraggingPiece] = useState<string | null>(null);
   
   // Initialize refs with current state to avoid closure issues in setTimeout callbacks
   const gameModeRef = useRef<GameMode>(gameMode);
@@ -1736,6 +1738,14 @@ export default function ChessApp() {
   // Drag and Drop Handlers
   // =========================================================================
   
+  // Create a transparent 1x1 pixel image for invisible drag ghost
+  const transparentImage = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    const img = new Image();
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    transparentImage.current = img;
+  }, []);
+  
   const handleDragStart = (e: React.DragEvent, displayRow: number, displayCol: number) => {
     const [row, col] = convertDisplayCoordinates(displayRow, displayCol);
     const piece = board[row][col];
@@ -1761,19 +1771,26 @@ export default function ChessApp() {
     
     // Set drag state
     setDraggingFrom([row, col]);
+    setDraggingPiece(piece);
     setSelectedSquare([row, col]);
     setValidMoves(moves);
+    setDragPosition({ x: e.clientX, y: e.clientY });
     
-    // Set drag image (optional - use the piece image)
-    if (e.dataTransfer) {
+    // Use transparent image to hide browser's default drag ghost
+    if (e.dataTransfer && transparentImage.current) {
       e.dataTransfer.effectAllowed = 'move';
-      // Set transparent drag image (we'll show the piece visually differently)
-      const img = new Image();
-      img.src = PIECE_IMAGES[piece];
-      e.dataTransfer.setDragImage(img, 35, 35);
+      e.dataTransfer.setDragImage(transparentImage.current, 0, 0);
     }
     
     console.log(`🎯 Drag started: ${piece} from [${row},${col}], ${moves.length} valid moves`);
+  };
+  
+  const handleDrag = (e: React.DragEvent) => {
+    // Update floating piece position during drag
+    // Note: e.clientX/Y can be 0 at the end of drag, so we check for that
+    if (e.clientX !== 0 || e.clientY !== 0) {
+      setDragPosition({ x: e.clientX, y: e.clientY });
+    }
   };
   
   const handleDragOver = (e: React.DragEvent, displayRow: number, displayCol: number) => {
@@ -1818,6 +1835,8 @@ export default function ChessApp() {
     
     // Clear drag state
     setDraggingFrom(null);
+    setDraggingPiece(null);
+    setDragPosition(null);
     setDragOverSquare(null);
     setSelectedSquare(null);
     setValidMoves([]);
@@ -1827,6 +1846,8 @@ export default function ChessApp() {
   const handleDragEnd = () => {
     // Clean up if drag was cancelled (dropped outside board)
     setDraggingFrom(null);
+    setDraggingPiece(null);
+    setDragPosition(null);
     setDragOverSquare(null);
     // Keep selection if drag was cancelled - user might want to click instead
   };
@@ -2345,9 +2366,10 @@ export default function ChessApp() {
                             <img 
                               src={PIECE_IMAGES[piece]} 
                               alt={PIECES[piece]}
-                              className={`w-[70%] h-[70%] object-contain ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'} ${isDragging ? 'opacity-50' : ''}`}
+                              className={`w-[70%] h-[70%] object-contain ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'pointer-events-none'} ${isDragging ? 'opacity-0' : ''}`}
                               draggable={canDrag}
                               onDragStart={(e) => handleDragStart(e, displayRowIndex, displayColIndex)}
+                              onDrag={handleDrag}
                               onDragEnd={handleDragEnd}
                             />
                           )}
@@ -2357,6 +2379,19 @@ export default function ChessApp() {
                   ))}
                 </div>
               </div>
+              
+              {/* Floating piece that follows cursor during drag */}
+              {draggingPiece && dragPosition && (
+                <img
+                  src={PIECE_IMAGES[draggingPiece]}
+                  alt="Dragging piece"
+                  className="fixed pointer-events-none z-50 w-16 h-16 object-contain"
+                  style={{
+                    left: dragPosition.x - 32,
+                    top: dragPosition.y - 32,
+                  }}
+                />
+              )}
               </div>
 
               <div className="mt-4 text-white text-center">
